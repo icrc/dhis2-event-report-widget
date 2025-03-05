@@ -20,13 +20,14 @@ import {
 } from '@dhis2/ui';
 
 // Import React Icons for UI elements
-import { FiFilter, FiDownload, FiRefreshCw, FiSettings, FiArrowUp, FiArrowDown } from 'react-icons/fi';
+import { FiFilter, FiDownload, FiRefreshCw, FiSettings, FiArrowUp, FiArrowDown, FiExternalLink } from 'react-icons/fi';
 
 // Import custom hooks and utilities
 import { useDataStore } from '../hooks/useDataStore';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { useEventReports } from '../hooks/useEventReports';
 import { useConfiguration } from '../contexts/ConfigurationContext';
+import { useConfig } from '@dhis2/app-runtime';
 
 // Import CSS module
 import styles from '../EventReportViewer.module.css';
@@ -59,6 +60,9 @@ const DEFAULT_HIDDEN_COLUMNS = [
  * Displays analytics data for a specific dashboard's event report
  */
 const EventReportViewer = ({ dashboardId }) => {
+  // Get baseUrl from DHIS2 app-runtime config
+  const { baseUrl } = useConfig();
+  
   // Utilize custom hooks for data management
   const { getDashboardConfiguration, saveConfiguration } = useDataStore();
   const { fetchAnalytics, analyticsData, loading: analyticsLoading, error: analyticsError, exportToCSV } = useAnalytics();
@@ -107,6 +111,12 @@ const EventReportViewer = ({ dashboardId }) => {
     return getEventReportDetails(dashboardConfig.eventReportId);
   }, [dashboardConfig, getEventReportDetails]);
 
+  // Determine if the program is WITH_REGISTRATION or WITHOUT_REGISTRATION
+  const programType = useMemo(() => {
+    if (!eventReportDetails?.program) return null;
+    return eventReportDetails.program.programType || 'WITHOUT_REGISTRATION';
+  }, [eventReportDetails]);
+
   // Fetch analytics when configuration changes
   useEffect(() => {
     if (dashboardConfig?.eventReportId) {
@@ -133,7 +143,7 @@ const EventReportViewer = ({ dashboardId }) => {
     }
   }, [dashboardConfig, getAnalyticsParams, fetchAnalytics]);
 
-  // Filter out hidden columns and their corresponding data
+  // Filter out hidden columns and their corresponding data, but add Action column
   const filteredAnalyticsData = useMemo(() => {
     if (!analyticsData || analyticsData.length === 0) return [];
     
@@ -145,10 +155,33 @@ const EventReportViewer = ({ dashboardId }) => {
       hiddenColumns.includes(header) ? -1 : index
     ).filter(index => index !== -1);
     
+    // Find indices for important fields we need for generating links
+    const eventIndex = headers.indexOf('Event');
+    const teiIndex = headers.indexOf('Tracked entity instance');
+    const ouIndex = headers.indexOf('Organisation unit');
+    
     // Filter the headers and data rows to include only visible columns
-    return analyticsData.map(row => 
-      visibleIndices.map(index => row[index])
-    );
+    const filteredData = analyticsData.map((row, rowIndex) => {
+      // For the header row, add the "Action" column
+      if (rowIndex === 0) {
+        return [...visibleIndices.map(index => row[index]), 'Action'];
+      } 
+      // For data rows, add the action button/link
+      else {
+        // Store the event ID, TEI, and OU for linking
+        const eventId = eventIndex >= 0 ? row[eventIndex] : null;
+        const tei = teiIndex >= 0 ? row[teiIndex] : null;
+        const orgUnitId = ouIndex >= 0 ? row[ouIndex] : null;
+        
+        // Add a special value for the action column that can be interpreted as a button later
+        return [
+          ...visibleIndices.map(index => row[index]), 
+          { type: 'action', eventId, tei, orgUnitId }
+        ];
+      }
+    });
+    
+    return filteredData;
   }, [analyticsData, hiddenColumns]);
 
   // Handle search term change
@@ -244,6 +277,27 @@ const EventReportViewer = ({ dashboardId }) => {
     }
   }, [dashboardConfig, dashboardId, saveConfiguration]);
 
+  // Generate link to tracker or capture app based on program type
+  const generateAppLink = useCallback((row) => {
+    if (!row || !row.type || row.type !== 'action') return '#';
+    
+    const { eventId, tei, orgUnitId } = row;
+    const programId = eventReportDetails?.program?.id;
+    
+    if (!programId) return '#';
+    
+    // Tracker Capture for WITH_REGISTRATION programs
+    if (programType === 'WITH_REGISTRATION' && tei && programId && orgUnitId) {
+      return `${baseUrl}/dhis-web-tracker-capture/index.html#/dashboard?tei=${tei}&program=${programId}&ou=${orgUnitId}`;
+    } 
+    // Event Capture for WITHOUT_REGISTRATION programs
+    else if (eventId) {
+      return `${baseUrl}/dhis-web-capture/index.html#/viewEvent?viewEventId=${eventId}`;
+    }
+    
+    return '#';
+  }, [baseUrl, eventReportDetails, programType]);
+
   // Handle column sort
   const handleSort = useCallback((columnIndex) => {
     setSortConfig(prev => {
@@ -273,9 +327,19 @@ const EventReportViewer = ({ dashboardId }) => {
     // If no sort configuration, return unsorted data
     if (sortConfig.columnIndex === null) return dataToSort;
     
+    // Don't sort the action column (last column)
+    if (sortConfig.columnIndex >= dataToSort[0].length - 1) {
+      return dataToSort;
+    }
+    
     return dataToSort.sort((a, b) => {
       const aValue = a[sortConfig.columnIndex];
       const bValue = b[sortConfig.columnIndex];
+      
+      // Skip sorting for action objects
+      if (typeof aValue === 'object' || typeof bValue === 'object') {
+        return 0;
+      }
       
       // Handle numeric sorting
       if (!isNaN(aValue) && !isNaN(bValue)) {
@@ -308,18 +372,27 @@ const EventReportViewer = ({ dashboardId }) => {
     if (!sortedData.length) return [];
 
     return sortedData.filter(row => {
-      // Search across all columns
+      // Search across all columns except the last one (action column)
       const matchesSearch = searchTerm 
-        ? row.some(cell => 
-            cell !== null && String(cell).toLowerCase().includes(searchTerm.toLowerCase())
-          )
+        ? row.slice(0, -1).some(cell => {
+            // Skip objects (like our action column)
+            if (typeof cell === 'object') return false;
+            return cell !== null && String(cell).toLowerCase().includes(searchTerm.toLowerCase());
+          })
         : true;
 
-      // Column-specific filtering
+      // Column-specific filtering - skip the last column (action)
       const matchesColumnFilters = Object.entries(columnFilters).every(
         ([columnIndex, filterValue]) => {
+          // Skip filtering on action column
+          if (parseInt(columnIndex) >= row.length - 1) return true;
+          
           if (!filterValue) return true;
           const cellValue = row[columnIndex];
+          
+          // Skip objects (like our action column)
+          if (typeof cellValue === 'object') return true;
+          
           return cellValue !== null && 
                  String(cellValue).toLowerCase().includes(filterValue.toLowerCase());
         }
@@ -340,6 +413,7 @@ const EventReportViewer = ({ dashboardId }) => {
   // Get full set of columns from analytics data for column selector
   const allColumns = useMemo(() => {
     if (!analyticsData || analyticsData.length === 0) return [];
+    // Don't include the Action column in the column selector
     return analyticsData[0] || [];
   }, [analyticsData]);
 
@@ -473,7 +547,8 @@ const EventReportViewer = ({ dashboardId }) => {
         {/* Filters Section */}
         {showFilters && filteredAnalyticsData[0] && (
           <div className={styles.filtersRow}>
-            {filteredAnalyticsData[0].map((header, index) => (
+            {/* Don't show filter for the action column */}
+            {filteredAnalyticsData[0].slice(0, -1).map((header, index) => (
               <div key={index} className={styles.filterField}>
                 <InputField
                   label={`Filter by ${header}`}
@@ -508,7 +583,25 @@ const EventReportViewer = ({ dashboardId }) => {
                   {paginatedData.map((row, rowIndex) => (
                     <TableRow key={rowIndex}>
                       {row.map((cell, cellIndex) => (
-                        <TableCell key={cellIndex}>{cell !== null ? cell : ''}</TableCell>
+                        <TableCell key={cellIndex}>
+                          {typeof cell === 'object' && cell.type === 'action' ? (
+                            <a 
+                              href={generateAppLink(cell)} 
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.actionLink}
+                            >
+                              <Button
+                                small
+                                icon={<FiExternalLink />}
+                              >
+                                Open
+                              </Button>
+                            </a>
+                          ) : (
+                            cell !== null ? cell : ''
+                          )}
+                        </TableCell>
                       ))}
                     </TableRow>
                   ))}
@@ -527,8 +620,8 @@ const EventReportViewer = ({ dashboardId }) => {
                   {filteredAnalyticsData[0].map((header, index) => (
                     <TableCellHead 
                       key={index}
-                      onClick={() => handleSort(index)}
-                      className={styles.sortableHeader}
+                      onClick={() => index < filteredAnalyticsData[0].length - 1 ? handleSort(index) : null}
+                      className={index < filteredAnalyticsData[0].length - 1 ? styles.sortableHeader : ''}
                     >
                       <div className={styles.headerContent}>
                         {header}
@@ -547,7 +640,23 @@ const EventReportViewer = ({ dashboardId }) => {
                   <TableRow key={rowIndex}>
                     {row.map((cell, cellIndex) => (
                       <TableCell key={cellIndex}>
-                        {cell !== null ? cell : ''}
+                        {typeof cell === 'object' && cell.type === 'action' ? (
+                          <a 
+                            href={generateAppLink(cell)} 
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.actionLink}
+                          >
+                            <Button
+                              small
+                              icon={<FiExternalLink />}
+                            >
+                              {programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
+                            </Button>
+                          </a>
+                        ) : (
+                          cell !== null ? cell : ''
+                        )}
                       </TableCell>
                     ))}
                   </TableRow>
