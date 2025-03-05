@@ -116,12 +116,20 @@ const EventReportViewer = ({ dashboardId }) => {
     if (!eventReportDetails?.program) return null;
     return eventReportDetails.program.programType || 'WITHOUT_REGISTRATION';
   }, [eventReportDetails]);
+  
+  // Determine the output type (EVENT or ENROLLMENT)
+  const outputType = useMemo(() => {
+    return eventReportDetails?.outputType || 'EVENT';
+  }, [eventReportDetails]);
 
   // Fetch analytics when configuration changes
   useEffect(() => {
     if (dashboardConfig?.eventReportId) {
       // Get the report ID from configuration
       const reportId = dashboardConfig.eventReportId;
+      
+      // Get the report details
+      const reportDetails = getEventReportDetails(reportId);
       
       // Get analytics parameters from the event report
       const reportParams = getAnalyticsParams(reportId);
@@ -137,11 +145,14 @@ const EventReportViewer = ({ dashboardId }) => {
           reportParams.period = dashboardConfig.period;
         }
         
-        // Fetch analytics with the parameters
-        fetchAnalytics(reportParams, reportId);
+        // Get the output type (EVENT or ENROLLMENT) from report details
+        const outputType = reportDetails?.outputType || 'EVENT';
+        
+        // Fetch analytics with the parameters and output type
+        fetchAnalytics(reportParams, reportId, outputType);
       }
     }
-  }, [dashboardConfig, getAnalyticsParams, fetchAnalytics]);
+  }, [dashboardConfig, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
 
   // Filter out hidden columns and their corresponding data, but add Action column
   const filteredAnalyticsData = useMemo(() => {
@@ -156,8 +167,10 @@ const EventReportViewer = ({ dashboardId }) => {
     ).filter(index => index !== -1);
     
     // Find indices for important fields we need for generating links
+    // Field names may differ between EVENT and ENROLLMENT analytics
     const eventIndex = headers.indexOf('Event');
     const teiIndex = headers.indexOf('Tracked entity instance');
+    const enrollmentIndex = headers.indexOf('Enrollment');
     const ouIndex = headers.indexOf('Organisation unit');
     
     // Filter the headers and data rows to include only visible columns
@@ -168,21 +181,29 @@ const EventReportViewer = ({ dashboardId }) => {
       } 
       // For data rows, add the action button/link
       else {
-        // Store the event ID, TEI, and OU for linking
+        // Store the relevant IDs for linking based on output type
         const eventId = eventIndex >= 0 ? row[eventIndex] : null;
         const tei = teiIndex >= 0 ? row[teiIndex] : null;
+        const enrollmentId = enrollmentIndex >= 0 ? row[enrollmentIndex] : null;
         const orgUnitId = ouIndex >= 0 ? row[ouIndex] : null;
         
         // Add a special value for the action column that can be interpreted as a button later
         return [
           ...visibleIndices.map(index => row[index]), 
-          { type: 'action', eventId, tei, orgUnitId }
+          { 
+            type: 'action', 
+            eventId, 
+            tei, 
+            enrollmentId,
+            orgUnitId,
+            outputType: outputType
+          }
         ];
       }
     });
     
     return filteredData;
-  }, [analyticsData, hiddenColumns]);
+  }, [analyticsData, hiddenColumns, outputType]);
 
   // Handle search term change
   const handleSearchChange = useCallback((value) => {
@@ -207,6 +228,7 @@ const EventReportViewer = ({ dashboardId }) => {
     try {
       // Get report parameters and refresh the data
       const reportId = dashboardConfig.eventReportId;
+      const reportDetails = getEventReportDetails(reportId);
       const reportParams = getAnalyticsParams(reportId);
       
       if (reportParams) {
@@ -218,12 +240,15 @@ const EventReportViewer = ({ dashboardId }) => {
           reportParams.period = dashboardConfig.period;
         }
         
-        await fetchAnalytics(reportParams, reportId);
+        // Get the output type (EVENT or ENROLLMENT) from report details
+        const outputType = reportDetails?.outputType || 'EVENT';
+        
+        await fetchAnalytics(reportParams, reportId, outputType);
       }
     } finally {
       setIsRefreshing(false);
     }
-  }, [dashboardConfig, getAnalyticsParams, fetchAnalytics]);
+  }, [dashboardConfig, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
 
   // Handle page change
   const handlePageChange = useCallback(({ page }) => {
@@ -277,22 +302,31 @@ const EventReportViewer = ({ dashboardId }) => {
     }
   }, [dashboardConfig, dashboardId, saveConfiguration]);
 
-  // Generate link to tracker or capture app based on program type
+  // Generate link to tracker or capture app based on program type and output type
   const generateAppLink = useCallback((row) => {
     if (!row || !row.type || row.type !== 'action') return '#';
     
     const { eventId, tei, orgUnitId } = row;
     const programId = eventReportDetails?.program?.id;
+    const outputType = eventReportDetails?.outputType || 'EVENT';
     
     if (!programId) return '#';
     
-    // Tracker Capture for WITH_REGISTRATION programs
-    if (programType === 'WITH_REGISTRATION' && tei && programId && orgUnitId) {
+    // For ENROLLMENT output type, always use tracker capture
+    if (outputType === 'ENROLLMENT' && tei && programId && orgUnitId) {
       return `${baseUrl}/dhis-web-tracker-capture/index.html#/dashboard?tei=${tei}&program=${programId}&ou=${orgUnitId}`;
-    } 
-    // Event Capture for WITHOUT_REGISTRATION programs
-    else if (eventId) {
-      return `${baseUrl}/dhis-web-capture/index.html#/viewEvent?viewEventId=${eventId}`;
+    }
+    
+    // For EVENT output type, use program type to determine the right app
+    if (outputType === 'EVENT') {
+      // Tracker Capture for WITH_REGISTRATION programs
+      if (programType === 'WITH_REGISTRATION' && tei && programId && orgUnitId) {
+        return `${baseUrl}/dhis-web-tracker-capture/index.html#/dashboard?tei=${tei}&program=${programId}&ou=${orgUnitId}`;
+      } 
+      // Event Capture for WITHOUT_REGISTRATION programs
+      else if (eventId) {
+        return `${baseUrl}/dhis-web-capture/index.html#/viewEvent?viewEventId=${eventId}`;
+      }
     }
     
     return '#';
@@ -472,6 +506,11 @@ const EventReportViewer = ({ dashboardId }) => {
         {eventReportDetails && (
           <h2 className={styles.header}>
             {eventReportDetails.displayName || eventReportDetails.name}
+            {eventReportDetails.outputType && (
+              <span style={{ fontSize: '0.8em', fontWeight: 'normal', marginLeft: '8px', color: '#666' }}>
+                ({eventReportDetails.outputType === 'ENROLLMENT' ? 'Enrollment Data' : 'Event Data'})
+              </span>
+            )}
           </h2>
         )}
 
@@ -595,7 +634,8 @@ const EventReportViewer = ({ dashboardId }) => {
                                 small
                                 icon={<FiExternalLink />}
                               >
-                                Open
+                                {cell.outputType === 'ENROLLMENT' ? 'Enrollment' : 
+                                programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
                               </Button>
                             </a>
                           ) : (
@@ -651,7 +691,8 @@ const EventReportViewer = ({ dashboardId }) => {
                               small
                               icon={<FiExternalLink />}
                             >
-                              {programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
+                              {cell.outputType === 'ENROLLMENT' ? 'Enrollment' : 
+                                programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
                             </Button>
                           </a>
                         ) : (

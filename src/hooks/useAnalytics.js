@@ -19,8 +19,9 @@ const useAnalytics = () => {
    * Fetch analytics data using event report parameters
    * @param {Object} params - Parameters for fetching analytics 
    * @param {string} reportId - ID of the event report
+   * @param {string} outputType - Type of analytics (EVENT or ENROLLMENT)
    */
-  const fetchAnalytics = useCallback(async (params, reportId = null) => {
+  const fetchAnalytics = useCallback(async (params, reportId = null, outputType = 'EVENT') => {
     setLoading(true);
     setError(null);
     
@@ -52,16 +53,13 @@ const useAnalytics = () => {
         dimensionParams.push(...cleanDimensions);
       }
 
-      // Join all dimensions with comma for a single dimension parameter
-      const dimensionParam = dimensionParams.join(',');
-
       // Build the query parameters
       const queryParams = {
-        dimension: dimensionParam,
+        dimension: dimensionParams,
         displayProperty: 'NAME',
         totalPages: false,
-        outputType: 'EVENT',
-        desc: 'eventdate',
+        outputType: outputType,
+        desc: outputType === 'ENROLLMENT' ? 'enrollmentdate' : 'eventdate',
         pageSize: params.pageSize || 100,
         page: params.page || 1,
         outputIdScheme: 'NAME'  // Use NAME to get text values not codes
@@ -73,12 +71,17 @@ const useAnalytics = () => {
       }
 
       console.log('Analytics query parameters:', queryParams);
-      console.log('Dimensions:', dimensionParam);
+      console.log('Output type:', outputType);
+
+      // Determine the resource path based on output type
+      const resourcePath = outputType === 'ENROLLMENT' 
+        ? `analytics/enrollments/query/${params.programId}.json`
+        : `analytics/events/query/${params.programId}.json`;
 
       // Create the query with the exact format needed
       const query = {
         analytics: {
-          resource: `analytics/events/query/${params.programId}.json`,
+          resource: resourcePath,
           params: queryParams
         }
       };
@@ -92,7 +95,7 @@ const useAnalytics = () => {
         setMetadata(processedData.metadata);
       } else {
         // Create mock data if no real data
-        const mockData = createMockData();
+        const mockData = createMockData(outputType);
         setAnalyticsData(mockData.data);
         setMetadata(mockData.metadata);
       }
@@ -101,7 +104,7 @@ const useAnalytics = () => {
       setError(error);
       
       // Create mock data on error
-      const mockData = createMockData();
+      const mockData = createMockData(outputType);
       setAnalyticsData(mockData.data);
       setMetadata(mockData.metadata);
     } finally {
@@ -144,27 +147,54 @@ const useAnalytics = () => {
 
   /**
    * Create mock data for testing
+   * @param {string} outputType - Type of output data (EVENT or ENROLLMENT)
    * @returns {Object} - Mock analytics data
    */
-  const createMockData = () => {
-    const headers = ['Event Date', 'Organization Unit', 'Status', 'Age', 'Gender'];
+  const createMockData = (outputType = 'EVENT') => {
+    let headers;
+    
+    if (outputType === 'ENROLLMENT') {
+      headers = ['Enrollment Date', 'Organization Unit', "Patient's First Name", "Patient's Surname", 'Sex', 'Age', 'Weight'];
+    } else {
+      headers = ['Event Date', 'Organization Unit', 'Status', "Patient's First Name", "Patient's Surname", 'Sex', 'Age'];
+    }
     
     // Generate some dummy rows
     const rows = [];
+    const firstNames = ['John', 'Jane', 'Michael', 'Sarah', 'David', 'Emma', 'James', 'Emily'];
+    const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Wilson'];
+    
     for (let i = 1; i <= 20; i++) {
       const date = new Date(2023, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1);
       const orgUnit = `Facility ${i % 5 + 1}`;
-      const status = ['Active', 'Completed', 'Scheduled'][i % 3];
-      const age = Math.floor(Math.random() * 60) + 18;
+      const firstName = firstNames[i % firstNames.length];
+      const lastName = lastNames[i % lastNames.length];
       const gender = i % 2 === 0 ? 'Male' : 'Female';
+      const age = Math.floor(Math.random() * 60) + 18;
       
-      rows.push([
-        date.toISOString().split('T')[0],
-        orgUnit,
-        status,
-        age,
-        gender
-      ]);
+      if (outputType === 'ENROLLMENT') {
+        const weight = Math.floor(Math.random() * 50) + 50; // 50-100 kg
+        rows.push([
+          date.toISOString().split('T')[0],
+          orgUnit,
+          firstName,
+          lastName,
+          gender,
+          age,
+          weight
+        ]);
+      } else {
+        const status = ['Active', 'Completed', 'Scheduled'][i % 3];
+        rows.push([
+          date.toISOString().split('T')[0],
+          orgUnit,
+          status,
+          firstName,
+          lastName,
+          gender,
+          age
+        ]);
+      }
     }
 
     return {
@@ -172,7 +202,8 @@ const useAnalytics = () => {
       metadata: {
         itemCount: rows.length,
         headers: headers,
-        reportId: currentReportId
+        reportId: currentReportId,
+        outputType: outputType
       }
     };
   };
