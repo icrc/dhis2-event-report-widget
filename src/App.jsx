@@ -55,25 +55,25 @@ const App = () => {
 
   // Use authorization hook
   const { hasConfigAccess, isSuperUser, isLoading: authLoading } = useAuthorization();
-  
+
   // Get DHIS2 data engine for API calls
   const engine = useDataEngine();
-  
+
   // Detect dashboard context using dashboardItemId
   useEffect(() => {
     const detectDashboardContext = async () => {
       console.log("Detecting dashboard context...");
       console.log("Current URL:", window.location.href);
-      
+
       const urlParams = new URLSearchParams(window.location.search);
-      
+
       // Check if we're in a dashboard item
       const dashboardItemId = urlParams.get('dashboardItemId');
-      
+
       if (dashboardItemId) {
         console.log("Found dashboard item ID:", dashboardItemId);
         setAppLoading(true);
-        
+
         try {
           // Fetch all dashboards with their items
           const result = await engine.query({
@@ -85,19 +85,19 @@ const App = () => {
               }
             }
           });
-          
+
           console.log("Fetched dashboards:", result.dashboards);
-          
+
           // Find which dashboard contains our item
           let foundDashboardId = null;
-          
+
           if (result.dashboards && result.dashboards.dashboards) {
             for (const dashboard of result.dashboards.dashboards) {
               if (dashboard.dashboardItems) {
                 const matchingItem = dashboard.dashboardItems.find(
                   item => item.id === dashboardItemId && item.appKey === 'event-report-widget'
                 );
-                
+
                 if (matchingItem) {
                   foundDashboardId = dashboard.id;
                   console.log(`Found matching dashboard: ${dashboard.name} (${dashboard.id})`);
@@ -106,7 +106,7 @@ const App = () => {
               }
             }
           }
-          
+
           if (foundDashboardId) {
             console.log("Setting dashboard ID to:", foundDashboardId);
             setCurrentDashboardId(foundDashboardId);
@@ -127,7 +127,7 @@ const App = () => {
         setCurrentDashboardId('default');
       }
     };
-    
+
     detectDashboardContext();
   }, [engine]);
 
@@ -135,18 +135,64 @@ const App = () => {
   const openConfigModal = useCallback(() => {
     setIsConfigModalOpen(true);
   }, []);
-  
+
+  useEffect(() => {
+    // Check if we're embedded in a dashboard
+    const urlParams = new URLSearchParams(window.location.search);
+    const isDashboardEmbedded = urlParams.has('dashboardItemId');
+    
+    if (isDashboardEmbedded) {
+      // Create a style element to hide the header
+      const styleElement = document.createElement('style');
+      styleElement.textContent = `
+        header.jsx-1294371968 {
+          display: none !important;
+        }
+        
+        /* Add more selectors if needed to hide other elements */
+        .dhis2-header-bar {
+          display: none;
+        }
+      `;
+      
+      // Add an ID to the style element so we can remove it later if needed
+      styleElement.id = 'dashboard-embedded-styles';
+      
+      // Add the style element to the document head
+      document.head.appendChild(styleElement);
+      
+      // Clean up function to remove the style when component unmounts
+      return () => {
+        const existingStyle = document.getElementById('dashboard-embedded-styles');
+        if (existingStyle) {
+          existingStyle.remove();
+        }
+      };
+    }
+  }, []);
+
   // Render configuration button (for users with config access)
   const renderConfigButtons = useCallback(() => {
+    // Don't show the configure button in these cases:
+    // 1. If user doesn't have config access
+    // 2. If the app is embedded in a dashboard (dashboardItemId is present)
+
     if (!hasConfigAccess) return null;
 
+    // Check if we're embedded in a dashboard by looking at URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const isDashboardEmbedded = urlParams.has('dashboardItemId');
+
+    // Hide button when embedded in a dashboard
+    if (isDashboardEmbedded) return null;
+
     return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'flex-end', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'flex-end',
         margin: '16px'
       }}>
-        <Button 
+        <Button
           onClick={openConfigModal}
           primary
         >
@@ -155,7 +201,6 @@ const App = () => {
       </div>
     );
   }, [hasConfigAccess, openConfigModal]);
-
   // Render tab navigation - only the Event Reports tab
   const renderTabNavigation = useCallback(() => {
     return (
@@ -195,7 +240,7 @@ const App = () => {
         </ErrorBoundary>
 
         {/* Unified Configuration Modal */}
-        <UnifiedConfigManager 
+        <UnifiedConfigManager
           isOpen={isConfigModalOpen}
           onClose={() => setIsConfigModalOpen(false)}
           dashboardId={currentDashboardId}
