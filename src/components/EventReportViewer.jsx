@@ -14,8 +14,9 @@ import {
   CircularLoader,
   Box,
   Card,
-  Checkbox
+  Checkbox 
 } from '@dhis2/ui';
+
 import { FiFilter, FiDownload, FiRefreshCw, FiSettings, FiArrowUp, FiArrowDown, FiExternalLink } from 'react-icons/fi';
 import { useDataStore } from '../hooks/useDataStore';
 import { useAnalytics } from '../hooks/useAnalytics';
@@ -46,6 +47,20 @@ const DEFAULT_HIDDEN_COLUMNS = [
   'Organisation unit name hierarchy',
   'Organisation unit code'
 ];
+
+const TrackerCaptureIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+    {/* SVG path for Tracker Capture icon */}
+    <path d="M12 5c-3.9 0-7 3.1-7 7s3.1 7 7 7 7-3.1 7-7-3.1-7-7-7zm0 2c2.8 0 5 2.2 5 5s-2.2 5-5 5-5-2.2-5-5 2.2-5 5-5zm0 2c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z" />
+  </svg>
+);
+
+const CaptureIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+    {/* SVG path for Capture icon */}
+    <path d="M9 3L5 7h3v7h2V7h3L9 3zm6 14h-3v-7H10v7H7l4 4 4-4z" />
+  </svg>
+);
 
 /**
  * EventReportViewer Component
@@ -655,10 +670,13 @@ const EventReportViewer = ({ dashboardId }) => {
                             >
                               <Button
                                 small
-                                icon={<FiExternalLink />}
+                                icon={
+                                  cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION' 
+                                  ? <TrackerCaptureIcon /> 
+                                  : <CaptureIcon />
+                                }
                               >
-                                {cell.outputType === 'ENROLLMENT' ? 'Enrollment' :
-                                  programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
+                               
                               </Button>
                             </a>
                           ) : (
@@ -712,10 +730,13 @@ const EventReportViewer = ({ dashboardId }) => {
                           >
                             <Button
                               small
-                              icon={<FiExternalLink />}
+                              icon={
+                                cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION' 
+                                ? <TrackerCaptureIcon /> 
+                                : <CaptureIcon />
+                              }
                             >
-                              {cell.outputType === 'ENROLLMENT' ? 'Enrollment' :
-                                programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
+                              
                             </Button>
                           </a>
                         ) : (
