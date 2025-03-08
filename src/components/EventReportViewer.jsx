@@ -16,18 +16,12 @@ import {
   Card,
   Checkbox
 } from '@dhis2/ui';
-
-// Import React Icons for UI elements
 import { FiFilter, FiDownload, FiRefreshCw, FiSettings, FiArrowUp, FiArrowDown, FiExternalLink } from 'react-icons/fi';
-
-// Import custom hooks and utilities
 import { useDataStore } from '../hooks/useDataStore';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { useEventReports } from '../hooks/useEventReports';
 import { useConfiguration } from '../contexts/ConfigurationContext';
 import { useConfig } from '@dhis2/app-runtime';
-
-// Import CSS module
 import styles from '../EventReportViewer.module.css';
 
 /**
@@ -60,10 +54,10 @@ const DEFAULT_HIDDEN_COLUMNS = [
 const EventReportViewer = ({ dashboardId }) => {
   // Get baseUrl from DHIS2 app-runtime config
   const { baseUrl } = useConfig();
-  
+
   // Utilize custom hooks for data management
   const { getDashboardConfiguration, saveConfiguration } = useDataStore();
-  const { fetchAnalytics, analyticsData, loading: analyticsLoading, error: analyticsError, exportToCSV } = useAnalytics();
+  const { fetchAnalytics, analyticsData, metadata, loading: analyticsLoading, error: analyticsError, exportToCSV } = useAnalytics();
   const { getEventReportDetails, getAnalyticsParams, loading: reportsLoading } = useEventReports();
   const { globalConfig } = useConfiguration();
 
@@ -73,42 +67,82 @@ const EventReportViewer = ({ dashboardId }) => {
   const [showFilters, setShowFilters] = useState(false);
   const [columnFilters, setColumnFilters] = useState({});
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [pageSize, setPageSize] = useState('10'); // String value for DHIS2 UI compatibility
+  const [pageSize, setPageSize] = useState('50'); // Default to 50 to match API default
   const [hiddenColumns, setHiddenColumns] = useState(DEFAULT_HIDDEN_COLUMNS);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [sortConfig, setSortConfig] = useState({ columnIndex: null, direction: 'asc' });
 
-  // Available page sizes as strings (required by DHIS2 UI)
-  const pageSizeOptions = ['10', '15', '20', '25', '50', '100'];
+  // Available page sizes as strings
+  const pageSizeOptions = ['10', '25', '50', '100'];
 
-  // Retrieve dashboard-specific configuration or default
-  const config = useMemo(() => 
-    getDashboardConfiguration(dashboardId), 
+  // Get configuration
+  const config = useMemo(() =>
+    getDashboardConfiguration(dashboardId),
     [dashboardId, getDashboardConfiguration]
   );
 
-  // Set page size and hidden columns from config when available
-  useEffect(() => {
-    if (config) {
-      if (config.pageSize) {
-        const pageSizeStr = String(config.pageSize);
-        
-        // Only set pageSize if it's in the available options
-        if (pageSizeOptions.includes(pageSizeStr)) {
-          setPageSize(pageSizeStr);
-        } else {
-          setPageSize('10');
-          console.warn(`Page size "${pageSizeStr}" from config is not in available options, using default instead.`);
-        }
+  // Function for initial data fetching
+  const fetchInitialData = useCallback(() => {
+    if (!config?.eventReportId) return;
+
+    setIsRefreshing(true);
+    const reportId = config.eventReportId;
+    const reportDetails = getEventReportDetails(reportId);
+    const reportParams = getAnalyticsParams(reportId);
+
+    if (reportParams) {
+      // Get the initial page size from config and convert to number
+      const configPageSize = config.pageSize ? parseInt(config.pageSize, 10) : 50;
+      console.log('Initial fetch with page size:', configPageSize);
+
+      // Explicitly set the page size
+      reportParams.pageSize = configPageSize;
+
+      if (config.period) {
+        reportParams.period = config.period;
       }
-      
+
+      const outputType = reportDetails?.outputType || 'EVENT';
+
+      // Direct call with explicit parameters
+      fetchAnalytics({
+        ...reportParams,
+        pageSize: configPageSize // Ensure this parameter is set correctly
+      }, reportId, outputType, 1)
+        .finally(() => {
+          setIsRefreshing(false);
+        });
+    } else {
+      setIsRefreshing(false);
+    }
+  }, [config, getEventReportDetails, getAnalyticsParams, fetchAnalytics]);
+
+  // Initial data load and configuration
+  useEffect(() => {
+    // Only fetch on initial load and when event report ID changes
+    if (config?.eventReportId) {
+      // Get initial page size as a string
+      const initialPageSize = config.pageSize ? String(config.pageSize) : '50';
+
+      // Set the initial page size from config
+      if (pageSizeOptions.includes(initialPageSize)) {
+        setPageSize(initialPageSize);
+      } else {
+        setPageSize('50'); // Default to 50 if invalid
+      }
+
+      // Set initial hidden columns
       if (config.hiddenColumns) {
         setHiddenColumns(config.hiddenColumns);
       } else {
         setHiddenColumns(DEFAULT_HIDDEN_COLUMNS);
       }
+
+      // Initial fetch with page 1
+      fetchInitialData();
     }
-  }, [config, pageSizeOptions]);
+    // Only depend on config.eventReportId, not the entire config object
+  }, [config?.eventReportId, fetchInitialData]);
 
   // Get event report details for the current configuration
   const eventReportDetails = useMemo(() => {
@@ -121,69 +155,73 @@ const EventReportViewer = ({ dashboardId }) => {
     if (!eventReportDetails?.program) return null;
     return eventReportDetails.program.programType || 'WITHOUT_REGISTRATION';
   }, [eventReportDetails]);
-  
+
   // Determine the output type (EVENT or ENROLLMENT)
   const outputType = useMemo(() => {
     return eventReportDetails?.outputType || 'EVENT';
   }, [eventReportDetails]);
 
-  // Fetch analytics when configuration changes
-  useEffect(() => {
-    if (config?.eventReportId) {
-      // Get the report ID from configuration
+  // Function to fetch data with pagination
+  const fetchData = useCallback(async (pageNumber = 1, customPageSize = null) => {
+    if (!config?.eventReportId) return;
+
+    setIsRefreshing(true);
+    try {
       const reportId = config.eventReportId;
-      
-      // Get the report details
       const reportDetails = getEventReportDetails(reportId);
-      
-      // Get analytics parameters from the event report
       const reportParams = getAnalyticsParams(reportId);
-      
+
       if (reportParams) {
-        // Customize page size from configuration if available
-        if (config.pageSize) {
-          reportParams.pageSize = parseInt(config.pageSize, 10);
-        }
-        
-        // Customize period from configuration if available
+        // Use the custom page size if provided, otherwise use current pageSize
+        // Make sure to convert string pageSize to number
+        const pageSizeToUse = customPageSize ? parseInt(customPageSize, 10) : parseInt(pageSize, 10);
+        console.log('Fetching data with page size:', pageSizeToUse);
+
+        // Explicitly set the page size
+        reportParams.pageSize = pageSizeToUse;
+
         if (config.period) {
           reportParams.period = config.period;
         }
-        
-        // Get the output type (EVENT or ENROLLMENT) from report details
+
         const outputType = reportDetails?.outputType || 'EVENT';
-        
-        // Fetch analytics with the parameters and output type
-        fetchAnalytics(reportParams, reportId, outputType);
+
+        // Direct call with explicit parameters
+        await fetchAnalytics({
+          ...reportParams,
+          pageSize: pageSizeToUse // Ensure this parameter is set correctly
+        }, reportId, outputType, pageNumber);
       }
+    } finally {
+      setIsRefreshing(false);
     }
-  }, [config, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
+  }, [config, getEventReportDetails, getAnalyticsParams, fetchAnalytics, pageSize]);
 
   // Filter out hidden columns and their corresponding data, but add Action column
   const filteredAnalyticsData = useMemo(() => {
     if (!analyticsData || analyticsData.length === 0) return [];
-    
+
     // Get the headers (first row)
     const headers = analyticsData[0];
-    
+
     // Create an array of indices for visible columns (columns not in hiddenColumns)
-    const visibleIndices = headers.map((header, index) => 
+    const visibleIndices = headers.map((header, index) =>
       hiddenColumns.includes(header) ? -1 : index
     ).filter(index => index !== -1);
-    
+
     // Find indices for important fields we need for generating links
     // Field names may differ between EVENT and ENROLLMENT analytics
     const eventIndex = headers.indexOf('Event');
     const teiIndex = headers.indexOf('Tracked entity instance');
     const enrollmentIndex = headers.indexOf('Enrollment');
     const ouIndex = headers.indexOf('Organisation unit');
-    
+
     // Filter the headers and data rows to include only visible columns
     const filteredData = analyticsData.map((row, rowIndex) => {
       // For the header row, add the "Action" column
       if (rowIndex === 0) {
         return [...visibleIndices.map(index => row[index]), 'Action'];
-      } 
+      }
       // For data rows, add the action button/link
       else {
         // Store the relevant IDs for linking based on output type
@@ -191,14 +229,14 @@ const EventReportViewer = ({ dashboardId }) => {
         const tei = teiIndex >= 0 ? row[teiIndex] : null;
         const enrollmentId = enrollmentIndex >= 0 ? row[enrollmentIndex] : null;
         const orgUnitId = ouIndex >= 0 ? row[ouIndex] : null;
-        
+
         // Add a special value for the action column that can be interpreted as a button later
         return [
-          ...visibleIndices.map(index => row[index]), 
-          { 
-            type: 'action', 
-            eventId, 
-            tei, 
+          ...visibleIndices.map(index => row[index]),
+          {
+            type: 'action',
+            eventId,
+            tei,
             enrollmentId,
             orgUnitId,
             outputType: outputType
@@ -206,115 +244,9 @@ const EventReportViewer = ({ dashboardId }) => {
         ];
       }
     });
-    
+
     return filteredData;
   }, [analyticsData, hiddenColumns, outputType]);
-
-  // Apply sorting to data - MOVED UP before being used
-  const sortedData = useMemo(() => {
-    if (!filteredAnalyticsData || filteredAnalyticsData.length <= 1) return [];
-    
-    // Skip header row for sorting
-    const dataToSort = [...filteredAnalyticsData.slice(1)];
-    
-    // If no sort configuration, return unsorted data
-    if (sortConfig.columnIndex === null) return dataToSort;
-    
-    // Don't sort the action column (last column)
-    if (sortConfig.columnIndex >= dataToSort[0].length - 1) {
-      return dataToSort;
-    }
-    
-    return dataToSort.sort((a, b) => {
-      const aValue = a[sortConfig.columnIndex];
-      const bValue = b[sortConfig.columnIndex];
-      
-      // Skip sorting for action objects
-      if (typeof aValue === 'object' || typeof bValue === 'object') {
-        return 0;
-      }
-      
-      // Handle numeric sorting
-      if (!isNaN(aValue) && !isNaN(bValue)) {
-        return sortConfig.direction === 'asc'
-          ? Number(aValue) - Number(bValue)
-          : Number(bValue) - Number(aValue);
-      }
-      
-      // Handle date sorting - check if values are valid dates
-      const aDate = new Date(aValue);
-      const bDate = new Date(bValue);
-      if (!isNaN(aDate) && !isNaN(bDate)) {
-        return sortConfig.direction === 'asc'
-          ? aDate - bDate
-          : bDate - aDate;
-      }
-      
-      // Default string sorting
-      const aString = String(aValue || '').toLowerCase();
-      const bString = String(bValue || '').toLowerCase();
-      
-      return sortConfig.direction === 'asc'
-        ? aString.localeCompare(bString)
-        : bString.localeCompare(aString);
-    });
-  }, [filteredAnalyticsData, sortConfig]);
-
-  // Pagination and filtering logic - MOVED UP before pageCount calculation
-  const filteredData = useMemo(() => {
-    if (!sortedData.length) return [];
-
-    return sortedData.filter(row => {
-      // Search across all columns except the last one (action column)
-      const matchesSearch = searchTerm 
-        ? row.slice(0, -1).some(cell => {
-            // Skip objects (like our action column)
-            if (typeof cell === 'object') return false;
-            return cell !== null && String(cell).toLowerCase().includes(searchTerm.toLowerCase());
-          })
-        : true;
-
-      // Column-specific filtering - skip the last column (action)
-      const matchesColumnFilters = Object.entries(columnFilters).every(
-        ([columnIndex, filterValue]) => {
-          // Skip filtering on action column
-          if (parseInt(columnIndex) >= row.length - 1) return true;
-          
-          if (!filterValue) return true;
-          const cellValue = row[columnIndex];
-          
-          // Skip objects (like our action column)
-          if (typeof cellValue === 'object') return true;
-          
-          return cellValue !== null && 
-                 String(cellValue).toLowerCase().includes(filterValue.toLowerCase());
-        }
-      );
-
-      return matchesSearch && matchesColumnFilters;
-    });
-  }, [sortedData, searchTerm, columnFilters]);
-
-  // Calculate pageCount BEFORE it's used - key fix!
-  const pageCount = useMemo(() => {
-    if (!filteredData || filteredData.length === 0) return 1;
-    const pageSizeNum = parseInt(pageSize, 10) || 10;
-    return Math.max(1, Math.ceil(filteredData.length / pageSizeNum));
-  }, [filteredData, pageSize]);
-
-  // Paginate filtered data - Now pageCount is defined before being used here
-  const paginatedData = useMemo(() => {
-    if (!filteredData || filteredData.length === 0) return [];
-    
-    // Ensure valid page number (between 1 and pageCount)
-    const validPage = Math.max(1, Math.min(page || 1, pageCount));
-    
-    // Convert pageSize to number for calculation
-    const pageSizeNum = parseInt(pageSize, 10) || 10;
-    
-    const startIndex = (validPage - 1) * pageSizeNum;
-    return filteredData.slice(startIndex, startIndex + pageSizeNum);
-  }, [filteredData, page, pageSize, pageCount]);
 
   // Handle search term change
   const handleSearchChange = useCallback((value) => {
@@ -332,62 +264,115 @@ const EventReportViewer = ({ dashboardId }) => {
   }, []);
 
   // Handle refresh button click
-  const handleRefresh = useCallback(async () => {
-    if (!config?.eventReportId) return;
-    
+  const handleRefresh = useCallback(() => {
+    fetchData(page);
+  }, [fetchData, page]);
+
+  // Handle page change
+  const handlePageChange = useCallback(({ page: newPage }) => {
+    if (newPage && newPage > 0) {
+      setPage(newPage);
+      fetchData(newPage);
+    } else {
+      setPage(1);
+      fetchData(1);
+    }
+  }, [fetchData]);
+
+  // Handle page size change
+  // Fix for the handlePageSizeChange function in EventReportViewer.jsx
+
+
+  // Fix for the handlePageSizeChange function
+  const handlePageSizeChange = useCallback((value) => {
+    // The DHIS2 Pagination component might be calling this differently than expected
+    console.log('Page size change value:', value);
+
+    // Try to extract the actual value - it might be passed directly
+    // or it might be inside an object
+    let selectedSize = value;
+
+    // If it's an object, try to get the selected property
+    if (typeof value === 'object' && value !== null) {
+      selectedSize = value.selected;
+    }
+
+    // If we still don't have a valid value, check if we have an event with a target
+    if (!selectedSize && value && value.target && value.target.value) {
+      selectedSize = value.target.value;
+    }
+
+    console.log('Extracted selected size:', selectedSize);
+
+    // If we still don't have a valid selection, just use the current page size
+    if (!selectedSize || !pageSizeOptions.includes(String(selectedSize))) {
+      console.warn('Could not determine valid page size, using current:', pageSize);
+      return;
+    }
+
+    // Convert to string to ensure consistency
+    const selectedSizeStr = String(selectedSize);
+    console.log('Selected new page size:', selectedSizeStr);
+
+    // Update the state
+    setPageSize(selectedSizeStr);
+    setPage(1);
+
+    // Set loading state
     setIsRefreshing(true);
-    try {
-      // Get report parameters and refresh the data
-      const reportId = config.eventReportId;
-      const reportDetails = getEventReportDetails(reportId);
-      const reportParams = getAnalyticsParams(reportId);
-      
-      if (reportParams) {
-        if (config.pageSize) {
-          reportParams.pageSize = parseInt(config.pageSize, 10);
-        }
-        
-        if (config.period) {
-          reportParams.period = config.period;
-        }
-        
-        // Get the output type (EVENT or ENROLLMENT) from report details
-        const outputType = reportDetails?.outputType || 'EVENT';
-        
-        await fetchAnalytics(reportParams, reportId, outputType);
+
+    // Get the parameters for the request
+    const reportId = config?.eventReportId;
+    if (!reportId) {
+      setIsRefreshing(false);
+      return;
+    }
+
+    const reportDetails = getEventReportDetails(reportId);
+    const reportParams = getAnalyticsParams(reportId);
+
+    if (reportParams) {
+      // Convert string to number for the API call
+      const numericPageSize = parseInt(selectedSizeStr, 10);
+      console.log('Using numeric page size for request:', numericPageSize);
+
+      // Explicitly set the page size in the params
+      reportParams.pageSize = numericPageSize;
+
+      if (config.period) {
+        reportParams.period = config.period;
       }
-    } finally {
+
+      const outputType = reportDetails?.outputType || 'EVENT';
+
+      // Direct call to fetchAnalytics with explicit parameters
+      fetchAnalytics({
+        ...reportParams,
+        pageSize: numericPageSize // Ensure this parameter is set correctly
+      }, reportId, outputType, 1)
+        .then(() => {
+          // Update configuration AFTER successful fetch
+          if (config && dashboardId) {
+            saveConfiguration(dashboardId, {
+              ...config,
+              pageSize: numericPageSize
+            });
+          }
+        })
+        .finally(() => {
+          setIsRefreshing(false);
+        });
+    } else {
       setIsRefreshing(false);
     }
-  }, [config, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
+  }, [pageSize, pageSizeOptions, config, dashboardId, getEventReportDetails, getAnalyticsParams, fetchAnalytics, saveConfiguration]);
 
-  // Handle page change with validation
-  const handlePageChange = useCallback(({ page }) => {
-    if (page !== undefined && page !== null && page > 0 && page <= pageCount) {
-      setPage(page);
-    } else {
-      // Reset to page 1 if invalid
-      setPage(1);
-    }
-  }, [pageCount]);
-
-  // Handle page size change with validation
-  const handlePageSizeChange = useCallback(({ pageSize }) => {
-    if (pageSize && pageSizeOptions.includes(pageSize)) {
-      setPageSize(pageSize);
-    } else {
-      // Fallback to default if not valid
-      setPageSize('10');
-    }
-    // Always reset to first page when changing page size
-    setPage(1);
-  }, [pageSizeOptions]);
 
   // Export data to CSV
   const handleExport = useCallback(() => {
     if (!analyticsData) return;
-    
-    const filename = `event_report_${dashboardId || 'export'}_${new Date().toISOString().slice(0,10)}.csv`;
+
+    const filename = `event_report_${dashboardId || 'export'}_${new Date().toISOString().slice(0, 10)}.csv`;
     exportToCSV(analyticsData, filename);
   }, [analyticsData, dashboardId, exportToCSV]);
 
@@ -398,7 +383,7 @@ const EventReportViewer = ({ dashboardId }) => {
       const newHiddenColumns = isCurrentlyHidden
         ? prev.filter(col => col !== columnName)
         : [...prev, columnName];
-      
+
       // Save updated hidden columns to configuration
       if (config && dashboardId) {
         saveConfiguration(dashboardId, {
@@ -406,7 +391,7 @@ const EventReportViewer = ({ dashboardId }) => {
           hiddenColumns: newHiddenColumns
         });
       }
-      
+
       return newHiddenColumns;
     });
   }, [config, dashboardId, saveConfiguration]);
@@ -414,7 +399,7 @@ const EventReportViewer = ({ dashboardId }) => {
   // Reset column visibility to defaults
   const resetColumnVisibility = useCallback(() => {
     setHiddenColumns(DEFAULT_HIDDEN_COLUMNS);
-    
+
     // Save default hidden columns to configuration
     if (config && dashboardId) {
       saveConfiguration(dashboardId, {
@@ -423,36 +408,6 @@ const EventReportViewer = ({ dashboardId }) => {
       });
     }
   }, [config, dashboardId, saveConfiguration]);
-
-  // Generate link to tracker or capture app based on program type and output type
-  const generateAppLink = useCallback((row) => {
-    if (!row || !row.type || row.type !== 'action') return '#';
-    
-    const { eventId, tei, orgUnitId } = row;
-    const programId = eventReportDetails?.program?.id;
-    const outputType = eventReportDetails?.outputType || 'EVENT';
-    
-    if (!programId) return '#';
-    
-    // For ENROLLMENT output type, always use tracker capture
-    if (outputType === 'ENROLLMENT' && tei && programId && orgUnitId) {
-      return `${baseUrl}/dhis-web-tracker-capture/index.html#/dashboard?tei=${tei}&program=${programId}&ou=${orgUnitId}`;
-    }
-    
-    // For EVENT output type, use program type to determine the right app
-    if (outputType === 'EVENT') {
-      // Tracker Capture for WITH_REGISTRATION programs
-      if (programType === 'WITH_REGISTRATION' && tei && programId && orgUnitId) {
-        return `${baseUrl}/dhis-web-tracker-capture/index.html#/dashboard?tei=${tei}&program=${programId}&ou=${orgUnitId}`;
-      } 
-      // Event Capture for WITHOUT_REGISTRATION programs
-      else if (eventId) {
-        return `${baseUrl}/dhis-web-capture/index.html#/viewEvent?viewEventId=${eventId}`;
-      }
-    }
-    
-    return '#';
-  }, [baseUrl, eventReportDetails, programType]);
 
   // Handle column sort
   const handleSort = useCallback((columnIndex) => {
@@ -472,6 +427,36 @@ const EventReportViewer = ({ dashboardId }) => {
       }
     });
   }, []);
+
+  // Generate link to tracker or capture app based on program type and output type
+  const generateAppLink = useCallback((row) => {
+    if (!row || !row.type || row.type !== 'action') return '#';
+
+    const { eventId, tei, orgUnitId } = row;
+    const programId = eventReportDetails?.program?.id;
+    const outputType = eventReportDetails?.outputType || 'EVENT';
+
+    if (!programId) return '#';
+
+    // For ENROLLMENT output type, always use tracker capture
+    if (outputType === 'ENROLLMENT' && tei && programId && orgUnitId) {
+      return `${baseUrl}/dhis-web-tracker-capture/index.html#/dashboard?tei=${tei}&program=${programId}&ou=${orgUnitId}`;
+    }
+
+    // For EVENT output type, use program type to determine the right app
+    if (outputType === 'EVENT') {
+      // Tracker Capture for WITH_REGISTRATION programs
+      if (programType === 'WITH_REGISTRATION' && tei && programId && orgUnitId) {
+        return `${baseUrl}/dhis-web-tracker-capture/index.html#/dashboard?tei=${tei}&program=${programId}&ou=${orgUnitId}`;
+      }
+      // Event Capture for WITHOUT_REGISTRATION programs
+      else if (eventId) {
+        return `${baseUrl}/dhis-web-capture/index.html#/viewEvent?viewEventId=${eventId}`;
+      }
+    }
+
+    return '#';
+  }, [baseUrl, eventReportDetails, programType]);
 
   // Get full set of columns from analytics data for column selector
   const allColumns = useMemo(() => {
@@ -525,6 +510,14 @@ const EventReportViewer = ({ dashboardId }) => {
     );
   }
 
+  // Extract pagination info from metadata
+  const pager = metadata?.pager || {
+    page: 1,
+    pageCount: 1,
+    pageSize: parseInt(pageSize, 10),
+    total: (filteredAnalyticsData?.length || 0) - 1
+  };
+
   return (
     <Card>
       <div className={styles.container}>
@@ -550,25 +543,25 @@ const EventReportViewer = ({ dashboardId }) => {
               dense
             />
           </div>
-          
+
           <div className={styles.buttonGroup}>
-            <Button 
+            <Button
               onClick={() => setShowFilters(!showFilters)}
               small
               icon={<FiFilter />}
             >
               {showFilters ? 'Hide Filters' : 'Show Filters'}
             </Button>
-            
-            <Button 
+
+            <Button
               onClick={handleExport}
               small
               icon={<FiDownload />}
             >
               Export CSV
             </Button>
-            
-            <Button 
+
+            <Button
               onClick={handleRefresh}
               small
               loading={isRefreshing}
@@ -576,7 +569,7 @@ const EventReportViewer = ({ dashboardId }) => {
             >
               Refresh
             </Button>
-            
+
             {/* Column Selector Button */}
             <Button
               small
@@ -628,8 +621,12 @@ const EventReportViewer = ({ dashboardId }) => {
 
         {/* Results Summary */}
         <div className={styles.resultsSummary}>
-          Showing {paginatedData.length} of {filteredData.length} results
-          {searchTerm && ` (filtered from ${filteredAnalyticsData.length - 1} total)`}
+          {pager.total ?
+            `Showing ${filteredAnalyticsData.length - 1} of ${pager.total} total results` :
+            `Showing ${filteredAnalyticsData.length - 1} results`
+          }
+          {pager.page > 1 && pager.pageCount > 1 && ` (page ${pager.page} of ${pager.pageCount})`}
+          {searchTerm && ' (filtered)'}
         </div>
 
         {/* Data Table */}
@@ -645,13 +642,13 @@ const EventReportViewer = ({ dashboardId }) => {
                   </TableRowHead>
                 </TableHead>
                 <TableBody>
-                  {paginatedData.map((row, rowIndex) => (
+                  {filteredAnalyticsData.slice(1).map((row, rowIndex) => (
                     <TableRow key={rowIndex}>
                       {row.map((cell, cellIndex) => (
                         <TableCell key={cellIndex}>
                           {typeof cell === 'object' && cell.type === 'action' ? (
-                            <a 
-                              href={generateAppLink(cell)} 
+                            <a
+                              href={generateAppLink(cell)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className={styles.actionLink}
@@ -660,8 +657,8 @@ const EventReportViewer = ({ dashboardId }) => {
                                 small
                                 icon={<FiExternalLink />}
                               >
-                                {cell.outputType === 'ENROLLMENT' ? 'Enrollment' : 
-                                programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
+                                {cell.outputType === 'ENROLLMENT' ? 'Enrollment' :
+                                  programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
                               </Button>
                             </a>
                           ) : (
@@ -684,7 +681,7 @@ const EventReportViewer = ({ dashboardId }) => {
               <TableHead>
                 <TableRowHead>
                   {filteredAnalyticsData[0].map((header, index) => (
-                    <TableCellHead 
+                    <TableCellHead
                       key={index}
                       onClick={() => index < filteredAnalyticsData[0].length - 1 ? handleSort(index) : null}
                       className={index < filteredAnalyticsData[0].length - 1 ? styles.sortableHeader : ''}
@@ -702,13 +699,13 @@ const EventReportViewer = ({ dashboardId }) => {
                 </TableRowHead>
               </TableHead>
               <TableBody>
-                {paginatedData.map((row, rowIndex) => (
+                {filteredAnalyticsData.slice(1).map((row, rowIndex) => (
                   <TableRow key={rowIndex}>
                     {row.map((cell, cellIndex) => (
                       <TableCell key={cellIndex}>
                         {typeof cell === 'object' && cell.type === 'action' ? (
-                          <a 
-                            href={generateAppLink(cell)} 
+                          <a
+                            href={generateAppLink(cell)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className={styles.actionLink}
@@ -717,7 +714,7 @@ const EventReportViewer = ({ dashboardId }) => {
                               small
                               icon={<FiExternalLink />}
                             >
-                              {cell.outputType === 'ENROLLMENT' ? 'Enrollment' : 
+                              {cell.outputType === 'ENROLLMENT' ? 'Enrollment' :
                                 programType === 'WITH_REGISTRATION' ? 'Tracker' : 'Event'}
                             </Button>
                           </a>
@@ -733,18 +730,27 @@ const EventReportViewer = ({ dashboardId }) => {
           </div>
         )}
 
-        {/* Pagination - Fixed with proper fallbacks */}
-        {filteredData.length > 0 && (
+        {/* Server-side Pagination - Using API pager metadata */}
+        {filteredAnalyticsData && filteredAnalyticsData.length > 1 && (
           <div className={styles.paginationContainer}>
             <Pagination
-              page={page || 1} // Ensure page is never undefined
-              pageSize={parseInt(pageSize, 10) || 10} // Convert to number with fallback
-              pageCount={pageCount} // Already safely calculated
+              page={pager.page}
+              pageSize={parseInt(pageSize, 10)}
+              pageCount={pager.pageCount || 1}
               onPageChange={handlePageChange}
-              onPageSizeChange={handlePageSizeChange}
+              onPageSizeChange={(value) => {
+                console.log("Page size changed:", value);
+                // If value is the direct value, not an object
+                if (typeof value === 'string' || typeof value === 'number') {
+                  handlePageSizeChange(value);
+                } else {
+                  // If value is an object as seen in some implementations
+                  handlePageSizeChange(value);
+                }
+              }}
               pageSizeSelectText="Items per page"
               pageSizes={pageSizeOptions}
-              total={filteredData.length || 0}
+              total={pager.total || (filteredAnalyticsData.length - 1)}
             />
           </div>
         )}
