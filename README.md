@@ -1,4 +1,20 @@
+# Event Report Widget
+
 This project was bootstrapped with [DHIS2 Application Platform](https://github.com/dhis2/app-platform).
+
+## Overview
+
+The Event Report Widget is a DHIS2 dashboard widget that displays a list of events with links to the Tracker and Capture modules. It provides features such as search, filtering, sorting, and exporting data to CSV.
+
+## Features
+
+- Display event reports with configurable columns
+- Search and filter events
+- Sort columns
+- Export data to CSV
+- Configure widget settings
+- Support for Tracker and Capture modules
+- Responsive design
 
 ## Available Scripts
 
@@ -36,6 +52,16 @@ You must run `yarn build` before running `yarn deploy`.<br />
 
 See the section about [deploying](https://platform.dhis2.nu/#/scripts/deploy) for more information.
 
+## Configuration
+
+The widget can be configured through the DHIS2 Data Store. The configuration includes settings for:
+
+- Default columns to hide
+- Page size
+- Period
+- Hidden columns
+- Global configuration (theme, language, refresh interval, etc.)
+
 ## Learn More
 
 You can learn more about the platform in the [DHIS2 Application Platform Documentation](https://platform.dhis2.nu/).
@@ -43,3 +69,17 @@ You can learn more about the platform in the [DHIS2 Application Platform Documen
 You can learn more about the runtime in the [DHIS2 Application Runtime Documentation](https://runtime.dhis2.nu/).
 
 To learn React, check out the [React documentation](https://reactjs.org/).
+
+## Contributing
+
+We welcome contributions to improve the Event Report Widget. Please follow the guidelines below:
+
+1. Fork the repository.
+2. Create a new branch for your feature or bugfix.
+3. Make your changes and commit them with a clear message.
+4. Push your changes to your fork.
+5. Create a pull request to the main repository.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
