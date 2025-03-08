@@ -230,7 +230,7 @@ const DashboardConfigSelector = ({ onClose }) => {
             label="Select Dashboard"
             loading={dashboardsLoading}
             onChange={({ selected }) => setSelectedDashboard(selected)}
-            selected={selectedDashboard}
+            selected={selectedDashboard || ''} 
             required
           >
             {dashboards.map(dashboard => (
@@ -275,7 +275,7 @@ const DashboardConfigSelector = ({ onClose }) => {
                     label="Select Event Report"
                     loading={reportsLoading}
                     onChange={({ selected }) => setSelectedReport(selected)}
-                    selected={selectedReport}
+                    selected={selectedReport || ''}
                     required
                   >
                     {eventReports.map(report => (
@@ -305,7 +305,7 @@ const DashboardConfigSelector = ({ onClose }) => {
                     <SingleSelectField
                       label="Default Period"
                       onChange={({ selected }) => setPeriod(selected)}
-                      selected={period}
+                      selected={period || ''}
                     >
                       {periodOptions.map(option => (
                         <SingleSelectOption

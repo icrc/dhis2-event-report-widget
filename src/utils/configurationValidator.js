@@ -26,7 +26,7 @@ export const configurationValidator = {
     }
 
     // Validate page size
-    if (config.pageSize) {
+    if (config.pageSize !== undefined) {
       if (typeof config.pageSize !== "number") {
         errors.push("Page size must be a number");
       } else if (config.pageSize < 5 || config.pageSize > 100) {

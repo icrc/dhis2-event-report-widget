@@ -10,48 +10,44 @@ export const useDashboards = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Query to fetch dashboards
-  const dashboardsQuery = {
+  // Define the query outside of the component
+  const DASHBOARDS_QUERY = {
     dashboards: {
       resource: 'dashboards',
       params: {
-        fields: [
-          'id',
-          'displayName',
-          'created',
-          'lastUpdated',
-          'user[id,displayName]'
-        ],
+        fields: ['id', 'displayName', 'created', 'lastUpdated'],
         order: 'displayName:asc',
-        paging: false
+        page: 1,
+        pageSize: 100
       }
     }
   };
 
-  /**
-   * Fetch dashboards from the server
-   */
-  const fetchDashboards = async () => {
-    setLoading(true);
-    setError(null);
+  // Use the query hook 
+  const { data, loading: queryLoading, error: queryError } = useDataQuery(DASHBOARDS_QUERY);
 
-    try {
-      const result = await useDataQuery(dashboardsQuery);
-      const fetchedDashboards = result.dashboards?.dashboards || [];
-      
-      setDashboards(fetchedDashboards);
+  // Update state when data is fetched
+  useEffect(() => {
+    if (data) {
+      setDashboards(data.dashboards.dashboards || []);
       setLoading(false);
-    } catch (queryError) {
-      console.error('Dashboards fetch error:', queryError);
+    } else if (queryError) {
+      console.error('Error fetching dashboards:', queryError);
       setError(queryError);
       setLoading(false);
+      
+      // Provide mock data for development if needed
+      if (process.env.NODE_ENV === 'development') {
+        setDashboards([
+          { id: 'dashboard1', displayName: 'COVID-19 Dashboard' },
+          { id: 'dashboard2', displayName: 'Maternal Health Dashboard' },
+          { id: 'dashboard3', displayName: 'Immunization Dashboard' }
+        ]);
+      }
+    } else {
+      setLoading(queryLoading);
     }
-  };
-
-  // Fetch dashboards on component mount
-  useEffect(() => {
-    fetchDashboards();
-  }, []);
+  }, [data, queryError, queryLoading]);
 
   /**
    * Get a specific dashboard by ID
@@ -66,7 +62,6 @@ export const useDashboards = () => {
     dashboards,
     loading,
     error,
-    getDashboardById,
-    refetch: fetchDashboards
+    getDashboardById
   };
 };

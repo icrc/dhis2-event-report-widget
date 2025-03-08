@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   DataProvider,
   useConfig
@@ -22,40 +22,10 @@ import { ConfigurationProvider } from './contexts/ConfigurationContext';
 // Import components
 import ErrorBoundary from './components/ErrorBoundary';
 import EventReportViewer from './components/EventReportViewer';
-import ConfigManager from './components/ConfigManager';
-import DashboardConfigSelector from './components/DashboardConfigSelector';
+import UnifiedConfigManager from './components/UnifiedConfigManager';
 
 // Import hooks
 import { useAuthorization } from './hooks/useAuthorization';
-
-/**
- * ConfigManagerModal Component
- * Wrapper for the ConfigManager to handle modal state
- */
-const ConfigManagerModal = ({ isOpen, onClose, dashboardId }) => {
-  if (!isOpen) return null;
-  
-  return (
-    <ConfigManager 
-      dashboardId={dashboardId}
-      onClose={onClose} 
-    />
-  );
-};
-
-/**
- * DashboardConfigModal Component
- * Wrapper for the DashboardConfigSelector to handle modal state
- */
-const DashboardConfigModal = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-  
-  return (
-    <DashboardConfigSelector 
-      onClose={onClose} 
-    />
-  );
-};
 
 /**
  * LoadingSpinner Component
@@ -77,28 +47,33 @@ const LoadingSpinner = ({ message = 'Loading...' }) => (
  * Provides the core structure for the Event Reports Widget
  */
 const App = () => {
-  // State for managing active tab and modals
-  const [activeTab, setActiveTab] = useState('viewer');
+  // State for managing configuration modal and current dashboard
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-  const [isDashboardConfigModalOpen, setIsDashboardConfigModalOpen] = useState(false);
   const [currentDashboardId, setCurrentDashboardId] = useState(null);
   const [appLoading, setAppLoading] = useState(false);
 
   // Use authorization hook
   const { hasConfigAccess, isSuperUser, isLoading: authLoading } = useAuthorization();
 
-  // Handle tab change
-  const handleTabChange = useCallback((tabId) => {
-    setActiveTab(tabId);
+ // Try to get the dashboard ID from URL or context
+ useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const dashboardId = urlParams.get('dashboardId');
+    
+    if (dashboardId) {
+      setCurrentDashboardId(dashboardId);
+    } else {
+      // Set to null to indicate we're not in a dashboard context
+      setCurrentDashboardId(null);
+    }
   }, []);
 
-  // Open configuration modal for a specific dashboard
-  const openConfigModal = useCallback((dashboardId) => {
-    setCurrentDashboardId(dashboardId);
+  // Open configuration modal
+  const openConfigModal = useCallback(() => {
     setIsConfigModalOpen(true);
   }, []);
 
-  // Render configuration management buttons (for users with config access)
+  // Render configuration button (for users with config access)
   const renderConfigButtons = useCallback(() => {
     if (!hasConfigAccess) return null;
 
@@ -109,59 +84,33 @@ const App = () => {
         margin: '16px'
       }}>
         <Button 
-          onClick={() => openConfigModal(currentDashboardId)}
+          onClick={openConfigModal}
           primary
         >
           Configure Widget
         </Button>
-        {isSuperUser && (
-          <Button 
-            onClick={() => setIsDashboardConfigModalOpen(true)}
-            secondary
-            style={{ marginLeft: '16px' }}
-          >
-            Manage Dashboard Configs
-          </Button>
-        )}
       </div>
     );
-  }, [hasConfigAccess, isSuperUser, currentDashboardId, openConfigModal]);
+  }, [hasConfigAccess, openConfigModal]);
 
-  // Render tab navigation
+  // Render tab navigation - only the Event Reports tab
   const renderTabNavigation = useCallback(() => {
     return (
       <TabBar>
         <Tab
           key="viewer"
-          selected={activeTab === 'viewer'}
-          onClick={() => handleTabChange('viewer')}
+          selected={true}
         >
           Event Reports
         </Tab>
-        {hasConfigAccess && (
-          <Tab
-            key="config"
-            selected={activeTab === 'config'}
-            onClick={() => handleTabChange('config')}
-          >
-            Configuration
-          </Tab>
-        )}
       </TabBar>
     );
-  }, [activeTab, hasConfigAccess, handleTabChange]);
+  }, []);
 
-  // Render active tab content
-  const renderActiveTabContent = useCallback(() => {
-    switch (activeTab) {
-      case 'viewer':
-        return <EventReportViewer dashboardId={currentDashboardId} />;
-      case 'config':
-        return hasConfigAccess ? <ConfigManager dashboardId={currentDashboardId} /> : null;
-      default:
-        return null;
-    }
-  }, [activeTab, hasConfigAccess, currentDashboardId]);
+  // Render content - Event Report Viewer
+  const renderContent = useCallback(() => {
+    return <EventReportViewer dashboardId={currentDashboardId} />;
+  }, [currentDashboardId]);
 
   // Show loading while authorization is being checked
   if (authLoading) {
@@ -171,32 +120,26 @@ const App = () => {
   return (
     <ErrorBoundary>
       <div className="app-container" style={{ padding: '16px' }}>
-        {/* Configuration Buttons */}
+        {/* Configuration Button */}
         {renderConfigButtons()}
 
         {/* Tab Navigation */}
         {renderTabNavigation()}
 
-        {/* Active Tab Content with Error Boundary */}
+        {/* Content with Error Boundary */}
         <ErrorBoundary>
           {appLoading ? (
             <LoadingSpinner />
           ) : (
-            renderActiveTabContent()
+            renderContent()
           )}
         </ErrorBoundary>
 
-        {/* Configuration Modal */}
-        <ConfigManagerModal 
+        {/* Unified Configuration Modal */}
+        <UnifiedConfigManager 
           isOpen={isConfigModalOpen}
           onClose={() => setIsConfigModalOpen(false)}
           dashboardId={currentDashboardId}
-        />
-
-        {/* Dashboard Configuration Modal */}
-        <DashboardConfigModal 
-          isOpen={isDashboardConfigModalOpen}
-          onClose={() => setIsDashboardConfigModalOpen(false)}
         />
       </div>
     </ErrorBoundary>

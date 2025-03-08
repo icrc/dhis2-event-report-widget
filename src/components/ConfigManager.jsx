@@ -1,8 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Modal,
-  ModalTitle,
-  ModalContent,
   ModalActions,
   Button,
   SingleSelectField,
@@ -11,9 +8,8 @@ import {
   NoticeBox,
   Tab,
   TabBar,
-  Checkbox,
   Box,
-  Divider,
+  Checkbox,
   FieldSet,
   Legend
 } from '@dhis2/ui';
@@ -23,6 +19,7 @@ import { useDataStore } from '../hooks/useDataStore';
 import { useAuthorization } from '../hooks/useAuthorization';
 import { useEventReports } from '../hooks/useEventReports';
 import { configurationValidator } from '../utils/configurationValidator';
+//import { PAGE_SIZE_OPTION_VALUES, DEFAULT_PAGE_SIZE } from '../utils/constants';
 
 // Default hidden columns definition
 const DEFAULT_HIDDEN_COLUMNS = [
@@ -44,26 +41,40 @@ const DEFAULT_HIDDEN_COLUMNS = [
   'Organisation unit code'
 ];
 
+
 /**
  * ConfigManager Component
  * 
  * Provides a configuration interface for dashboard event report widgets
- * - Only accessible by super users
+ * - Only accessible by users with config access
  * - Allows selecting an event report and configuring display options
  * - Saves configuration to DHIS2 Data Store
  * 
  * @param {Object} props
- * @param {string} props.dashboardId - Unique identifier for the dashboard
+ * @param {string} props.dashboardId - Unique identifier for the dashboard or 'default'
  * @param {function} props.onClose - Callback to close the configuration modal
+ * @param {boolean} props.embedded - Whether the component is embedded in another component
  */
-const ConfigManager = ({ dashboardId, onClose }) => {
+const ConfigManager = ({ dashboardId, onClose, embedded = false }) => {
   // Use custom hooks for authorization, data store, and event reports
-  const { hasConfigAccess, isSuperUser } = useAuthorization();
-  const { saveConfiguration, getDashboardConfiguration } = useDataStore();
+  const { hasConfigAccess } = useAuthorization();
+  const { saveConfiguration, getDashboardConfiguration, saveGlobalConfiguration } = useDataStore();
   const { eventReports, loading: reportsLoading, error: reportsError, getEventReportDetails } = useEventReports();
 
+  const PAGE_SIZE_OPTIONS = [
+    { value: '5', label: '5' },
+    { value: '10', label: '10' },
+    { value: '15', label: '15' },
+    { value: '20', label: '20' },
+    { value: '25', label: '25' },
+    { value: '50', label: '50' },
+    { value: '100', label: '100' }
+  ];
+
+  const DEFAULT_PAGE_SIZE = '10';
+
   // Get current dashboard configuration
-  const existingConfig = useMemo(() => 
+  const existingConfig = useMemo(() =>
     getDashboardConfiguration(dashboardId) || {},
     [dashboardId, getDashboardConfiguration]
   );
@@ -73,12 +84,19 @@ const ConfigManager = ({ dashboardId, onClose }) => {
 
   // State for configuration options
   const [selectedReport, setSelectedReport] = useState(existingConfig.eventReportId || null);
-  const [pageSize, setPageSize] = useState(existingConfig.pageSize || 10);
+  const [pageSize, setPageSize] = useState(
+    existingConfig.pageSize ? String(existingConfig.pageSize) : DEFAULT_PAGE_SIZE
+  );
   const [period, setPeriod] = useState(existingConfig.period || 'LAST_12_MONTHS');
   const [hiddenColumns, setHiddenColumns] = useState(existingConfig.hiddenColumns || DEFAULT_HIDDEN_COLUMNS);
-  
+
+  // State for global config options
+  const [globalFallback, setGlobalFallback] = useState(true);
+
   // State for validation
   const [validationResult, setValidationResult] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+
 
   // Fetch sample columns when selected report changes
   const [availableColumns, setAvailableColumns] = useState([]);
@@ -113,14 +131,7 @@ const ConfigManager = ({ dashboardId, onClose }) => {
     { value: 'LAST_YEAR', label: 'Last Year' }
   ];
 
-  // Validate page size input
-  const handlePageSizeChange = (value) => {
-    const parsedValue = parseInt(value, 10);
-    // Ensure page size is between 5 and 100
-    if (!isNaN(parsedValue) && parsedValue >= 5 && parsedValue <= 100) {
-      setPageSize(parsedValue);
-    }
-  };
+ 
 
   // Toggle a column's visibility in the hidden columns array
   const toggleColumnVisibility = (columnName) => {
@@ -143,18 +154,18 @@ const ConfigManager = ({ dashboardId, onClose }) => {
     // Create configuration object for validation
     const configToValidate = {
       eventReportId: selectedReport,
-      pageSize,
+      pageSize: parseInt(pageSize, 10), // Make sure this is converted to a number
       period,
       hiddenColumns,
       metadata: {
         createdAt: new Date().toISOString()
       }
     };
-
+  
     // Validate using utility
     const result = configurationValidator.validateDashboardConfig(configToValidate);
     setValidationResult(result);
-    
+  
     return result.isValid;
   };
 
@@ -174,10 +185,18 @@ const ConfigManager = ({ dashboardId, onClose }) => {
       return;
     }
 
+    setIsSaving(true);
+    console.log(`Saving configuration for dashboard: ${dashboardId}`, {
+      eventReportId: selectedReport,
+      pageSize: parseInt(pageSize, 10),
+      period,
+      hiddenColumns: hiddenColumns.length
+    });
+
     // Prepare configuration object
     const configuration = {
       eventReportId: selectedReport,
-      pageSize,
+      pageSize: parseInt(pageSize, 10),
       period,
       hiddenColumns,
       metadata: {
@@ -185,184 +204,246 @@ const ConfigManager = ({ dashboardId, onClose }) => {
       }
     };
 
-    // Save configuration for specific dashboard
-    saveConfiguration(dashboardId, configuration);
-    
-    // Close the modal after saving
-    onClose();
+    try {
+      // Save specific dashboard configuration
+      saveConfiguration(dashboardId, configuration);
+
+      // If this is the default config, also update global settings
+      if (dashboardId === 'default') {
+        saveGlobalConfiguration({
+          globalFallback,
+          lastModified: new Date().toISOString()
+        });
+      }
+
+      // Show success message
+      setValidationResult({
+        isValid: true,
+        errors: [],
+        warnings: [],
+        success: `Configuration for ${dashboardId === 'default' ? 'default' : `dashboard ${dashboardId}`} saved successfully!`
+      });
+
+      // Close the modal after saving (if not embedded)
+      if (!embedded && typeof onClose === 'function') {
+        setTimeout(() => {
+          onClose();
+        }, 1500);
+      }
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+      setValidationResult({
+        isValid: false,
+        errors: [`Error saving configuration: ${error.message}`],
+        warnings: []
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Check user authorization
   if (!hasConfigAccess) {
     return (
-      <Modal>
-        <ModalContent>
-          <NoticeBox error>
-            You do not have permission to manage configurations. 
-            Only users with configuration access can modify widget settings.
-          </NoticeBox>
-        </ModalContent>
-        <ModalActions>
-          <Button onClick={onClose}>Close</Button>
-        </ModalActions>
-      </Modal>
+      <Box>
+        <NoticeBox error>
+          You do not have permission to manage configurations.
+          Only users with configuration access can modify widget settings.
+        </NoticeBox>
+        {!embedded && (
+          <Box marginTop="16px" display="flex" justifyContent="flex-end">
+            <Button onClick={onClose}>Close</Button>
+          </Box>
+        )}
+      </Box>
     );
   }
 
-  // Render configuration modal
+  // Render configuration interface
   return (
-    <Modal large>
-      <ModalTitle>Configure Dashboard Event Report Widget</ModalTitle>
-      <ModalContent>
-        {/* Tab Navigation */}
-        <TabBar>
-          <Tab
-            key="basic"
-            selected={activeTab === 'basic'}
-            onClick={() => setActiveTab('basic')}
-          >
-            Basic Settings
-          </Tab>
-          <Tab
-            key="columns"
-            selected={activeTab === 'columns'}
-            onClick={() => setActiveTab('columns')}
-          >
-            Column Visibility
-          </Tab>
-        </TabBar>
+    <Box>
+      {/* Tab Navigation */}
+      <TabBar>
+        <Tab
+          key="basic"
+          selected={activeTab === 'basic'}
+          onClick={() => setActiveTab('basic')}
+        >
+          Basic Settings
+        </Tab>
+        <Tab
+          key="columns"
+          selected={activeTab === 'columns'}
+          onClick={() => setActiveTab('columns')}
+        >
+          Column Visibility
+        </Tab>
+      </TabBar>
 
-        <Box padding="16px">
-          {/* Basic Settings Tab */}
-          {activeTab === 'basic' && (
-            <>
-              {/* Event Report Selection */}
+      <Box padding="16px">
+        {/* Basic Settings Tab */}
+        {activeTab === 'basic' && (
+          <>
+            {/* Event Report Selection */}
+            <SingleSelectField
+              label="Select Event Report"
+              loading={reportsLoading}
+              error={!!reportsError}
+              onChange={({ selected }) => setSelectedReport(selected)}
+              selected={selectedReport || ''}  // Add default empty string
+              required
+            >
+              {eventReports.map(report => (
+                <SingleSelectOption
+                  key={report.id}
+                  value={report.id}
+                  label={report.name}
+                />
+              ))}
+            </SingleSelectField>
+
+            {/* Page Size Configuration */}
+            <Box marginTop="16px">
               <SingleSelectField
-                label="Select Event Report"
-                loading={reportsLoading}
-                error={!!reportsError}
-                onChange={({ selected }) => setSelectedReport(selected)}
-                selected={selectedReport}
-                required
+                label="Records per Page"
+                onChange={({ selected }) => setPageSize(selected)}
+                selected={pageSize || DEFAULT_PAGE_SIZE}
+                helpText="Number of records to display per page"
               >
-                {eventReports.map(report => (
+                {PAGE_SIZE_OPTIONS.map(option => (
                   <SingleSelectOption
-                    key={report.id}
-                    value={report.id}
-                    label={report.name}
+                    key={option.value}
+                    value={option.value}
+                    label={option.label}
                   />
                 ))}
               </SingleSelectField>
-
-              {/* Page Size Configuration */}
-              <Box marginTop="16px">
-                <InputField
-                  label="Records per Page"
-                  type="number"
-                  value={pageSize.toString()}
-                  onChange={({ value }) => handlePageSizeChange(value)}
-                  min={5}
-                  max={100}
-                  helpText="Number of records to display (5-100)"
-                />
-              </Box>
-
-              {/* Period Selection */}
-              <Box marginTop="16px">
-                <SingleSelectField
-                  label="Default Period"
-                  onChange={({ selected }) => setPeriod(selected)}
-                  selected={period}
-                >
-                  {periodOptions.map(option => (
-                    <SingleSelectOption
-                      key={option.value}
-                      value={option.value}
-                      label={option.label}
-                    />
-                  ))}
-                </SingleSelectField>
-              </Box>
-            </>
-          )}
-
-          {/* Columns Visibility Tab */}
-          {activeTab === 'columns' && (
-            <>
-              <Box display="flex" justifyContent="space-between" alignItems="center" marginBottom="16px">
-                <h3 style={{ margin: 0 }}>Configure Visible Columns</h3>
-                <Button small onClick={resetHiddenColumns}>Reset to Default</Button>
-              </Box>
-              
-              <Box marginBottom="16px">
-                <p>Select which columns should be hidden in the report view:</p>
-              </Box>
-              
-              <div style={{ 
-                display: 'flex', 
-                flexWrap: 'wrap', 
-                gap: '12px', 
-                maxHeight: '300px', 
-                overflowY: 'auto' 
-              }}>
-                {availableColumns.map((column, index) => (
-                  <div key={index} style={{ flex: '0 0 250px' }}>
-                    <Checkbox
-                      checked={hiddenColumns.includes(column)}
-                      label={column}
-                      onChange={() => toggleColumnVisibility(column)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Error Handling */}
-          {(reportsError || validationResult?.errors?.length > 0) && (
-            <Box marginTop="16px">
-              <NoticeBox error title="Configuration Error">
-                {reportsError && <p>Error loading event reports: {reportsError.message}</p>}
-                {validationResult?.errors?.length > 0 && (
-                  <ul>
-                    {validationResult.errors.map((error, index) => (
-                      <li key={index}>{error}</li>
-                    ))}
-                  </ul>
-                )}
-              </NoticeBox>
             </Box>
-          )}
 
-          {/* Warnings */}
-          {validationResult?.warnings?.length > 0 && (
+            {/* Period Selection */}
             <Box marginTop="16px">
-              <NoticeBox warning title="Configuration Warnings">
+              <SingleSelectField
+                label="Default Period"
+                onChange={({ selected }) => setPeriod(selected)}
+                selected={period || ''}
+              >
+                {periodOptions.map(option => (
+                  <SingleSelectOption
+                    key={option.value}
+                    value={option.value}
+                    label={option.label}
+                  />
+                ))}
+              </SingleSelectField>
+            </Box>
+
+            {/* Global Settings (for default config only) */}
+            {dashboardId === 'default' && (
+              <Box marginTop="16px">
+                <FieldSet>
+                  <Legend>Global Settings</Legend>
+
+                  <Box marginTop="8px">
+                    <Checkbox
+                      label="Use Default Configuration for All Dashboards If Not Specified"
+                      checked={globalFallback}
+                      onChange={({ checked }) => setGlobalFallback(checked)}
+                    />
+                  </Box>
+                </FieldSet>
+              </Box>
+            )}
+          </>
+        )}
+
+        {/* Columns Visibility Tab */}
+        {activeTab === 'columns' && (
+          <>
+            <Box display="flex" justifyContent="space-between" alignItems="center" marginBottom="16px">
+              <h3 style={{ margin: 0 }}>Configure Visible Columns</h3>
+              <Button small onClick={resetHiddenColumns}>Reset to Default</Button>
+            </Box>
+
+            <Box marginBottom="16px">
+              <p>Select which columns should be hidden in the report view:</p>
+            </Box>
+
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '12px',
+              maxHeight: '300px',
+              overflowY: 'auto'
+            }}>
+              {availableColumns.map((column, index) => (
+                <div key={index} style={{ flex: '0 0 250px' }}>
+                  <Checkbox
+                    checked={hiddenColumns.includes(column)}
+                    label={column}
+                    onChange={() => toggleColumnVisibility(column)}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Error Handling */}
+        {(reportsError || validationResult?.errors?.length > 0) && (
+          <Box marginTop="16px">
+            <NoticeBox error title="Configuration Error">
+              {reportsError && <p>Error loading event reports: {reportsError.message}</p>}
+              {validationResult?.errors?.length > 0 && (
                 <ul>
-                  {validationResult.warnings.map((warning, index) => (
-                    <li key={index}>{warning}</li>
+                  {validationResult.errors.map((error, index) => (
+                    <li key={index}>{error}</li>
                   ))}
                 </ul>
-              </NoticeBox>
-            </Box>
+              )}
+            </NoticeBox>
+          </Box>
+        )}
+
+        {/* Warnings */}
+        {validationResult?.warnings?.length > 0 && (
+          <Box marginTop="16px">
+            <NoticeBox warning title="Configuration Warnings">
+              <ul>
+                {validationResult.warnings.map((warning, index) => (
+                  <li key={index}>{warning}</li>
+                ))}
+              </ul>
+            </NoticeBox>
+          </Box>
+        )}
+
+        {/* Success Message */}
+        {validationResult?.success && (
+          <Box marginTop="16px">
+            <NoticeBox title="Success" success>
+              {validationResult.success}
+            </NoticeBox>
+          </Box>
+        )}
+
+        {/* Actions */}
+        <Box marginTop="16px" display="flex" justifyContent="flex-end">
+          {!embedded && (
+            <Button secondary onClick={onClose} style={{ marginRight: '8px' }}>
+              Cancel
+            </Button>
           )}
+          <Button
+            primary
+            onClick={handleSaveConfiguration}
+            disabled={!selectedReport || isSaving}
+            loading={isSaving}
+          >
+            Save Configuration
+          </Button>
         </Box>
-      </ModalContent>
-      
-      {/* Actions */}
-      <ModalActions>
-        <Button secondary onClick={onClose}>
-          Cancel
-        </Button>
-        <Button 
-          primary 
-          onClick={handleSaveConfiguration}
-          disabled={!selectedReport}
-        >
-          Save Configuration
-        </Button>
-      </ModalActions>
-    </Modal>
+      </Box>
+    </Box>
   );
 };
 

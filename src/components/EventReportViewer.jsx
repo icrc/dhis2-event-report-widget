@@ -12,8 +12,6 @@ import {
   Button,
   InputField,
   CircularLoader,
-  SingleSelectField,
-  SingleSelectOption,
   Box,
   Card,
   Checkbox
@@ -75,41 +73,48 @@ const EventReportViewer = ({ dashboardId }) => {
   const [showFilters, setShowFilters] = useState(false);
   const [columnFilters, setColumnFilters] = useState({});
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [pageSize, setPageSize] = useState('10'); // String value for page size
+  const [pageSize, setPageSize] = useState('10'); // String value for DHIS2 UI compatibility
   const [hiddenColumns, setHiddenColumns] = useState(DEFAULT_HIDDEN_COLUMNS);
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const [sortConfig, setSortConfig] = useState({ columnIndex: null, direction: 'asc' });
 
   // Available page sizes as strings (required by DHIS2 UI)
-  const pageSizeOptions = ['10', '20', '50', '100'];
+  const pageSizeOptions = ['10', '15', '20', '25', '50', '100'];
 
-  // Retrieve dashboard-specific configuration
-  const dashboardConfig = useMemo(() => 
+  // Retrieve dashboard-specific configuration or default
+  const config = useMemo(() => 
     getDashboardConfiguration(dashboardId), 
     [dashboardId, getDashboardConfiguration]
   );
 
   // Set page size and hidden columns from config when available
   useEffect(() => {
-    if (dashboardConfig) {
-      if (dashboardConfig.pageSize) {
-        // Convert to string for DHIS2 UI compatibility
-        setPageSize(String(dashboardConfig.pageSize));
+    if (config) {
+      if (config.pageSize) {
+        const pageSizeStr = String(config.pageSize);
+        
+        // Only set pageSize if it's in the available options
+        if (pageSizeOptions.includes(pageSizeStr)) {
+          setPageSize(pageSizeStr);
+        } else {
+          setPageSize('10');
+          console.warn(`Page size "${pageSizeStr}" from config is not in available options, using default instead.`);
+        }
       }
       
-      if (dashboardConfig.hiddenColumns) {
-        setHiddenColumns(dashboardConfig.hiddenColumns);
+      if (config.hiddenColumns) {
+        setHiddenColumns(config.hiddenColumns);
       } else {
         setHiddenColumns(DEFAULT_HIDDEN_COLUMNS);
       }
     }
-  }, [dashboardConfig]);
+  }, [config, pageSizeOptions]);
 
   // Get event report details for the current configuration
   const eventReportDetails = useMemo(() => {
-    if (!dashboardConfig?.eventReportId) return null;
-    return getEventReportDetails(dashboardConfig.eventReportId);
-  }, [dashboardConfig, getEventReportDetails]);
+    if (!config?.eventReportId) return null;
+    return getEventReportDetails(config.eventReportId);
+  }, [config, getEventReportDetails]);
 
   // Determine if the program is WITH_REGISTRATION or WITHOUT_REGISTRATION
   const programType = useMemo(() => {
@@ -124,9 +129,9 @@ const EventReportViewer = ({ dashboardId }) => {
 
   // Fetch analytics when configuration changes
   useEffect(() => {
-    if (dashboardConfig?.eventReportId) {
+    if (config?.eventReportId) {
       // Get the report ID from configuration
-      const reportId = dashboardConfig.eventReportId;
+      const reportId = config.eventReportId;
       
       // Get the report details
       const reportDetails = getEventReportDetails(reportId);
@@ -136,13 +141,13 @@ const EventReportViewer = ({ dashboardId }) => {
       
       if (reportParams) {
         // Customize page size from configuration if available
-        if (dashboardConfig.pageSize) {
-          reportParams.pageSize = dashboardConfig.pageSize;
+        if (config.pageSize) {
+          reportParams.pageSize = parseInt(config.pageSize, 10);
         }
         
         // Customize period from configuration if available
-        if (dashboardConfig.period) {
-          reportParams.period = dashboardConfig.period;
+        if (config.period) {
+          reportParams.period = config.period;
         }
         
         // Get the output type (EVENT or ENROLLMENT) from report details
@@ -152,7 +157,7 @@ const EventReportViewer = ({ dashboardId }) => {
         fetchAnalytics(reportParams, reportId, outputType);
       }
     }
-  }, [dashboardConfig, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
+  }, [config, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
 
   // Filter out hidden columns and their corresponding data, but add Action column
   const filteredAnalyticsData = useMemo(() => {
@@ -205,6 +210,112 @@ const EventReportViewer = ({ dashboardId }) => {
     return filteredData;
   }, [analyticsData, hiddenColumns, outputType]);
 
+  // Apply sorting to data - MOVED UP before being used
+  const sortedData = useMemo(() => {
+    if (!filteredAnalyticsData || filteredAnalyticsData.length <= 1) return [];
+    
+    // Skip header row for sorting
+    const dataToSort = [...filteredAnalyticsData.slice(1)];
+    
+    // If no sort configuration, return unsorted data
+    if (sortConfig.columnIndex === null) return dataToSort;
+    
+    // Don't sort the action column (last column)
+    if (sortConfig.columnIndex >= dataToSort[0].length - 1) {
+      return dataToSort;
+    }
+    
+    return dataToSort.sort((a, b) => {
+      const aValue = a[sortConfig.columnIndex];
+      const bValue = b[sortConfig.columnIndex];
+      
+      // Skip sorting for action objects
+      if (typeof aValue === 'object' || typeof bValue === 'object') {
+        return 0;
+      }
+      
+      // Handle numeric sorting
+      if (!isNaN(aValue) && !isNaN(bValue)) {
+        return sortConfig.direction === 'asc'
+          ? Number(aValue) - Number(bValue)
+          : Number(bValue) - Number(aValue);
+      }
+      
+      // Handle date sorting - check if values are valid dates
+      const aDate = new Date(aValue);
+      const bDate = new Date(bValue);
+      if (!isNaN(aDate) && !isNaN(bDate)) {
+        return sortConfig.direction === 'asc'
+          ? aDate - bDate
+          : bDate - aDate;
+      }
+      
+      // Default string sorting
+      const aString = String(aValue || '').toLowerCase();
+      const bString = String(bValue || '').toLowerCase();
+      
+      return sortConfig.direction === 'asc'
+        ? aString.localeCompare(bString)
+        : bString.localeCompare(aString);
+    });
+  }, [filteredAnalyticsData, sortConfig]);
+
+  // Pagination and filtering logic - MOVED UP before pageCount calculation
+  const filteredData = useMemo(() => {
+    if (!sortedData.length) return [];
+
+    return sortedData.filter(row => {
+      // Search across all columns except the last one (action column)
+      const matchesSearch = searchTerm 
+        ? row.slice(0, -1).some(cell => {
+            // Skip objects (like our action column)
+            if (typeof cell === 'object') return false;
+            return cell !== null && String(cell).toLowerCase().includes(searchTerm.toLowerCase());
+          })
+        : true;
+
+      // Column-specific filtering - skip the last column (action)
+      const matchesColumnFilters = Object.entries(columnFilters).every(
+        ([columnIndex, filterValue]) => {
+          // Skip filtering on action column
+          if (parseInt(columnIndex) >= row.length - 1) return true;
+          
+          if (!filterValue) return true;
+          const cellValue = row[columnIndex];
+          
+          // Skip objects (like our action column)
+          if (typeof cellValue === 'object') return true;
+          
+          return cellValue !== null && 
+                 String(cellValue).toLowerCase().includes(filterValue.toLowerCase());
+        }
+      );
+
+      return matchesSearch && matchesColumnFilters;
+    });
+  }, [sortedData, searchTerm, columnFilters]);
+
+  // Calculate pageCount BEFORE it's used - key fix!
+  const pageCount = useMemo(() => {
+    if (!filteredData || filteredData.length === 0) return 1;
+    const pageSizeNum = parseInt(pageSize, 10) || 10;
+    return Math.max(1, Math.ceil(filteredData.length / pageSizeNum));
+  }, [filteredData, pageSize]);
+
+  // Paginate filtered data - Now pageCount is defined before being used here
+  const paginatedData = useMemo(() => {
+    if (!filteredData || filteredData.length === 0) return [];
+    
+    // Ensure valid page number (between 1 and pageCount)
+    const validPage = Math.max(1, Math.min(page || 1, pageCount));
+    
+    // Convert pageSize to number for calculation
+    const pageSizeNum = parseInt(pageSize, 10) || 10;
+    
+    const startIndex = (validPage - 1) * pageSizeNum;
+    return filteredData.slice(startIndex, startIndex + pageSizeNum);
+  }, [filteredData, page, pageSize, pageCount]);
+
   // Handle search term change
   const handleSearchChange = useCallback((value) => {
     setSearchTerm(value);
@@ -222,22 +333,22 @@ const EventReportViewer = ({ dashboardId }) => {
 
   // Handle refresh button click
   const handleRefresh = useCallback(async () => {
-    if (!dashboardConfig?.eventReportId) return;
+    if (!config?.eventReportId) return;
     
     setIsRefreshing(true);
     try {
       // Get report parameters and refresh the data
-      const reportId = dashboardConfig.eventReportId;
+      const reportId = config.eventReportId;
       const reportDetails = getEventReportDetails(reportId);
       const reportParams = getAnalyticsParams(reportId);
       
       if (reportParams) {
-        if (dashboardConfig.pageSize) {
-          reportParams.pageSize = dashboardConfig.pageSize;
+        if (config.pageSize) {
+          reportParams.pageSize = parseInt(config.pageSize, 10);
         }
         
-        if (dashboardConfig.period) {
-          reportParams.period = dashboardConfig.period;
+        if (config.period) {
+          reportParams.period = config.period;
         }
         
         // Get the output type (EVENT or ENROLLMENT) from report details
@@ -248,18 +359,29 @@ const EventReportViewer = ({ dashboardId }) => {
     } finally {
       setIsRefreshing(false);
     }
-  }, [dashboardConfig, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
+  }, [config, getAnalyticsParams, fetchAnalytics, getEventReportDetails]);
 
-  // Handle page change
+  // Handle page change with validation
   const handlePageChange = useCallback(({ page }) => {
-    setPage(page);
-  }, []);
+    if (page !== undefined && page !== null && page > 0 && page <= pageCount) {
+      setPage(page);
+    } else {
+      // Reset to page 1 if invalid
+      setPage(1);
+    }
+  }, [pageCount]);
 
-  // Handle page size change with string values
+  // Handle page size change with validation
   const handlePageSizeChange = useCallback(({ pageSize }) => {
-    setPageSize(pageSize);
+    if (pageSize && pageSizeOptions.includes(pageSize)) {
+      setPageSize(pageSize);
+    } else {
+      // Fallback to default if not valid
+      setPageSize('10');
+    }
+    // Always reset to first page when changing page size
     setPage(1);
-  }, []);
+  }, [pageSizeOptions]);
 
   // Export data to CSV
   const handleExport = useCallback(() => {
@@ -278,29 +400,29 @@ const EventReportViewer = ({ dashboardId }) => {
         : [...prev, columnName];
       
       // Save updated hidden columns to configuration
-      if (dashboardConfig && dashboardId) {
+      if (config && dashboardId) {
         saveConfiguration(dashboardId, {
-          ...dashboardConfig,
+          ...config,
           hiddenColumns: newHiddenColumns
         });
       }
       
       return newHiddenColumns;
     });
-  }, [dashboardConfig, dashboardId, saveConfiguration]);
+  }, [config, dashboardId, saveConfiguration]);
 
   // Reset column visibility to defaults
   const resetColumnVisibility = useCallback(() => {
     setHiddenColumns(DEFAULT_HIDDEN_COLUMNS);
     
     // Save default hidden columns to configuration
-    if (dashboardConfig && dashboardId) {
+    if (config && dashboardId) {
       saveConfiguration(dashboardId, {
-        ...dashboardConfig,
+        ...config,
         hiddenColumns: DEFAULT_HIDDEN_COLUMNS
       });
     }
-  }, [dashboardConfig, dashboardId, saveConfiguration]);
+  }, [config, dashboardId, saveConfiguration]);
 
   // Generate link to tracker or capture app based on program type and output type
   const generateAppLink = useCallback((row) => {
@@ -351,99 +473,6 @@ const EventReportViewer = ({ dashboardId }) => {
     });
   }, []);
 
-  // Apply sorting to data
-  const sortedData = useMemo(() => {
-    if (!filteredAnalyticsData || filteredAnalyticsData.length <= 1) return [];
-    
-    // Skip header row for sorting
-    const dataToSort = [...filteredAnalyticsData.slice(1)];
-    
-    // If no sort configuration, return unsorted data
-    if (sortConfig.columnIndex === null) return dataToSort;
-    
-    // Don't sort the action column (last column)
-    if (sortConfig.columnIndex >= dataToSort[0].length - 1) {
-      return dataToSort;
-    }
-    
-    return dataToSort.sort((a, b) => {
-      const aValue = a[sortConfig.columnIndex];
-      const bValue = b[sortConfig.columnIndex];
-      
-      // Skip sorting for action objects
-      if (typeof aValue === 'object' || typeof bValue === 'object') {
-        return 0;
-      }
-      
-      // Handle numeric sorting
-      if (!isNaN(aValue) && !isNaN(bValue)) {
-        return sortConfig.direction === 'asc'
-          ? Number(aValue) - Number(bValue)
-          : Number(bValue) - Number(aValue);
-      }
-      
-      // Handle date sorting - check if values are valid dates
-      const aDate = new Date(aValue);
-      const bDate = new Date(bValue);
-      if (!isNaN(aDate) && !isNaN(bDate)) {
-        return sortConfig.direction === 'asc'
-          ? aDate - bDate
-          : bDate - aDate;
-      }
-      
-      // Default string sorting
-      const aString = String(aValue || '').toLowerCase();
-      const bString = String(bValue || '').toLowerCase();
-      
-      return sortConfig.direction === 'asc'
-        ? aString.localeCompare(bString)
-        : bString.localeCompare(aString);
-    });
-  }, [filteredAnalyticsData, sortConfig]);
-
-  // Pagination and filtering logic
-  const filteredData = useMemo(() => {
-    if (!sortedData.length) return [];
-
-    return sortedData.filter(row => {
-      // Search across all columns except the last one (action column)
-      const matchesSearch = searchTerm 
-        ? row.slice(0, -1).some(cell => {
-            // Skip objects (like our action column)
-            if (typeof cell === 'object') return false;
-            return cell !== null && String(cell).toLowerCase().includes(searchTerm.toLowerCase());
-          })
-        : true;
-
-      // Column-specific filtering - skip the last column (action)
-      const matchesColumnFilters = Object.entries(columnFilters).every(
-        ([columnIndex, filterValue]) => {
-          // Skip filtering on action column
-          if (parseInt(columnIndex) >= row.length - 1) return true;
-          
-          if (!filterValue) return true;
-          const cellValue = row[columnIndex];
-          
-          // Skip objects (like our action column)
-          if (typeof cellValue === 'object') return true;
-          
-          return cellValue !== null && 
-                 String(cellValue).toLowerCase().includes(filterValue.toLowerCase());
-        }
-      );
-
-      return matchesSearch && matchesColumnFilters;
-    });
-  }, [sortedData, searchTerm, columnFilters]);
-
-  // Paginate filtered data
-  const paginatedData = useMemo(() => {
-    // Convert pageSize to number for calculation
-    const pageSizeNum = parseInt(pageSize, 10);
-    const startIndex = (page - 1) * pageSizeNum;
-    return filteredData.slice(startIndex, startIndex + pageSizeNum);
-  }, [filteredData, page, pageSize]);
-
   // Get full set of columns from analytics data for column selector
   const allColumns = useMemo(() => {
     if (!analyticsData || analyticsData.length === 0) return [];
@@ -476,7 +505,7 @@ const EventReportViewer = ({ dashboardId }) => {
   }
 
   // Render no configuration state
-  if (!dashboardConfig?.eventReportId) {
+  if (!config?.eventReportId) {
     return (
       <NoticeBox title="No Event Report Configured">
         <p>Please configure an event report for this dashboard.</p>
@@ -495,9 +524,6 @@ const EventReportViewer = ({ dashboardId }) => {
       </NoticeBox>
     );
   }
-
-  // Calculate page count with numeric page size
-  const pageCount = Math.ceil(filteredData.length / parseInt(pageSize, 10));
 
   return (
     <Card>
@@ -707,19 +733,21 @@ const EventReportViewer = ({ dashboardId }) => {
           </div>
         )}
 
-        {/* Pagination - Fixed to use string values */}
-        <div className={styles.paginationContainer}>
-          <Pagination
-            page={page}
-            pageSize={pageSize}
-            pageCount={pageCount}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
-            pageSizeSelectText="Items per page"
-            pageSizes={pageSizeOptions}
-            total={filteredData.length}
-          />
-        </div>
+        {/* Pagination - Fixed with proper fallbacks */}
+        {filteredData.length > 0 && (
+          <div className={styles.paginationContainer}>
+            <Pagination
+              page={page || 1} // Ensure page is never undefined
+              pageSize={parseInt(pageSize, 10) || 10} // Convert to number with fallback
+              pageCount={pageCount} // Already safely calculated
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
+              pageSizeSelectText="Items per page"
+              pageSizes={pageSizeOptions}
+              total={filteredData.length || 0}
+            />
+          </div>
+        )}
       </div>
     </Card>
   );

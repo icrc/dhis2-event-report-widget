@@ -19,24 +19,21 @@ const useEventReports = () => {
   // Define static query to get all event reports with complete details
   const eventReportsQuery = {
     eventReports: {
-      resource: "eventReports",
+      resource: 'eventReports',
       params: {
         fields: [
-          "*",
-          "program[id,displayName,programType]",
-          "programStage[id,displayName]",
-          "dataElementDimensions[dataElement[id,displayName],programStage[id]]",
-          "attributeDimensions[attribute[id,displayName]]",
-          "columnDimensions",
-          "rowDimensions",
-          "filterDimensions",
-          "organisationUnits[id,displayName]",
-          "relativePeriods",
+          'id', 'name', 'displayName', 'description', 'created', 'lastUpdated',
+          'program[id,displayName,programType]', 'programStage[id,displayName]',
+          'dataElementDimensions[dataElement[id,displayName],programStage[id]]',
+          'attributeDimensions[attribute[id,displayName]]',
+          'columnDimensions', 'rowDimensions', 'filterDimensions',
+          'organisationUnits[id,displayName]', 'relativePeriods', 'outputType'
         ],
-        order: "name:asc",
-        paging: false,
-      },
-    },
+        order: 'name:asc',
+        page: 1,
+        pageSize: 100
+      }
+    }
   };
 
   // Use the query hook at the top level

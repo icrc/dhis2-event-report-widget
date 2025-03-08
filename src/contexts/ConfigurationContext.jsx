@@ -52,12 +52,6 @@ export const ConfigurationProvider = ({ children }) => {
     type: 'read'
   });
 
-  const [createNamespace] = useDataMutation({
-    resource: `dataStore/${NAMESPACE}`,
-    type: 'create',
-    data: ({data}) => data
-  });
-
   const [updateGlobalConfig] = useDataMutation({
     resource: `dataStore/${NAMESPACE}/${GLOBAL_CONFIG_KEY}`,
     type: 'update',
@@ -89,31 +83,14 @@ export const ConfigurationProvider = ({ children }) => {
       setError(null);
       
       try {
-        // Try to create namespace first (might fail if already exists)
-        try {
-          await createNamespace({ data: {} });
-        } catch (namespaceError) {
-          // Ignore if namespace already exists
-          console.log('Namespace creation error (might already exist):', namespaceError);
-        }
-
         // Load global configuration
         try {
           const globalResult = await readGlobalConfig();
           setGlobalConfig(prev => ({ ...prev, ...globalResult }));
         } catch (globalError) {
           console.log('Global config error:', globalError);
-          // If not found, create with defaults
-          if (globalError.httpStatusCode === 404) {
-            const defaultConfig = {
-              theme: 'default',
-              language: 'en',
-              pageSize: 10,
-              refreshInterval: 0
-            };
-            await createGlobalConfig({ data: defaultConfig });
-            setGlobalConfig(defaultConfig);
-          } else {
+          // If not found, we'll use defaults (already set in state)
+          if (globalError.httpStatusCode !== 404) {
             console.error('Error fetching global config:', globalError);
           }
         }
@@ -124,11 +101,8 @@ export const ConfigurationProvider = ({ children }) => {
           setDashboardConfigs(dashboardResult || {});
         } catch (dashboardError) {
           console.log('Dashboard config error:', dashboardError);
-          // If not found, create with defaults
-          if (dashboardError.httpStatusCode === 404) {
-            await createDashboardConfigs({ data: {} });
-            setDashboardConfigs({});
-          } else {
+          // If not found, we'll use an empty object (already set in state)
+          if (dashboardError.httpStatusCode !== 404) {
             console.error('Error fetching dashboard configs:', dashboardError);
           }
         }
@@ -141,7 +115,7 @@ export const ConfigurationProvider = ({ children }) => {
     };
 
     loadConfigurations();
-  }, [createNamespace, readGlobalConfig, readDashboardConfigs, createGlobalConfig, createDashboardConfigs]);
+  }, [readGlobalConfig, readDashboardConfigs]);
 
   /**
    * Update global configuration
@@ -191,10 +165,13 @@ export const ConfigurationProvider = ({ children }) => {
     }
 
     try {
+      // Get current configurations to avoid overwriting other dashboards
+      let currentConfigs = { ...dashboardConfigs };
+      
       const updatedConfigs = {
-        ...dashboardConfigs,
+        ...currentConfigs,
         [dashboardId]: {
-          ...(dashboardConfigs[dashboardId] || {}),
+          ...(currentConfigs[dashboardId] || {}),
           ...config,
           lastModified: new Date().toISOString()
         }
@@ -238,33 +215,64 @@ export const ConfigurationProvider = ({ children }) => {
             pageSize: 10,
             refreshInterval: 0
           };
-          await updateGlobalConfig({ data: defaultGlobalConfig });
+          
+          try {
+            await updateGlobalConfig({ data: defaultGlobalConfig });
+          } catch (updateError) {
+            if (updateError.httpStatusCode === 404) {
+              await createGlobalConfig({ data: defaultGlobalConfig });
+            } else {
+              throw updateError;
+            }
+          }
+          
           setGlobalConfig(defaultGlobalConfig);
           break;
         
         case 'dashboards':
-          await updateDashboardConfigs({ data: {} });
+          try {
+            await updateDashboardConfigs({ data: {} });
+          } catch (updateError) {
+            if (updateError.httpStatusCode === 404) {
+              await createDashboardConfigs({ data: {} });
+            } else {
+              throw updateError;
+            }
+          }
+          
           setDashboardConfigs({});
           break;
         
         default:
           // Reset everything
-          await updateGlobalConfig({ 
-            data: {
-              theme: 'default',
-              language: 'en',
-              pageSize: 10,
-              refreshInterval: 0
-            } 
-          });
-          await updateDashboardConfigs({ data: {} });
-          
-          setGlobalConfig({
+          const defaultConfig = {
             theme: 'default',
             language: 'en',
             pageSize: 10,
             refreshInterval: 0
-          });
+          };
+          
+          try {
+            await updateGlobalConfig({ data: defaultConfig });
+          } catch (updateError) {
+            if (updateError.httpStatusCode === 404) {
+              await createGlobalConfig({ data: defaultConfig });
+            } else {
+              throw updateError;
+            }
+          }
+          
+          try {
+            await updateDashboardConfigs({ data: {} });
+          } catch (updateError) {
+            if (updateError.httpStatusCode === 404) {
+              await createDashboardConfigs({ data: {} });
+            } else {
+              throw updateError;
+            }
+          }
+          
+          setGlobalConfig(defaultConfig);
           setDashboardConfigs({});
       }
     } catch (error) {

@@ -1,222 +1,431 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useDataMutation } from '@dhis2/app-runtime';
+import { useState, useCallback, useEffect } from "react";
+import { useDataQuery, useDataMutation } from "@dhis2/app-runtime";
+
+/**
+ * Default columns to hide in the event report view
+ */
+const DEFAULT_HIDDEN_COLUMNS = [
+  "Event",
+  "Program stage",
+  "Stored by",
+  "Created by",
+  "Last updated by",
+  "Last updated on",
+  "Scheduled date",
+  "Date of enrollment in the system",
+  "Date of Report",
+  "Tracked entity instance",
+  "Program instance",
+  "Geometry",
+  "Longitude",
+  "Latitude",
+  "Organisation unit name hierarchy",
+  "Organisation unit code",
+];
 
 /**
  * Custom hook for managing DHIS2 Data Store interactions
- * Assumes the namespace already exists (created manually)
- * 
- * @returns {Object} Data store methods and state
  */
 const useDataStore = () => {
   // Namespace for storing configurations
-  const NAMESPACE = 'EVENT_REPORT_WIDGET_CONFIGS';
-  const CONFIG_KEY = 'dashboardConfigurations';
+  const NAMESPACE = "EVENT_REPORT_WIDGET";
+  // For storing all dashboard configurations in one key
+  const DASHBOARD_CONFIGS_KEY = "dashboardConfigurations";
+  const GLOBAL_CONFIG_KEY = "globalConfiguration";
 
-  // State to manage loading and error states
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  // State for managing configurations
   const [configurations, setConfigurations] = useState({});
+  const [globalConfig, setGlobalConfig] = useState({
+    theme: "default",
+    language: "en",
+    pageSize: 10,
+    refreshInterval: 0,
+    globalFallback: true,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Define static dataStore mutations
-  const [readConfig] = useDataMutation({
-    resource: `dataStore/${NAMESPACE}/${CONFIG_KEY}`,
-    type: 'read'
+  // Define static mutations
+  const [readDashboardConfigs] = useDataMutation({
+    resource: `dataStore/${NAMESPACE}/${DASHBOARD_CONFIGS_KEY}`,
+    type: "read",
   });
 
-  const [createConfig] = useDataMutation({
-    resource: `dataStore/${NAMESPACE}/${CONFIG_KEY}`,
-    type: 'create',
-    data: ({ config }) => config
+  const [updateDashboardConfigs] = useDataMutation({
+    resource: `dataStore/${NAMESPACE}/${DASHBOARD_CONFIGS_KEY}`,
+    type: "update",
+    data: ({ data }) => data,
   });
 
-  const [updateConfig] = useDataMutation({
-    resource: `dataStore/${NAMESPACE}/${CONFIG_KEY}`,
-    type: 'update',
-    data: ({ config }) => config
+  const [createDashboardConfigs] = useDataMutation({
+    resource: `dataStore/${NAMESPACE}/${DASHBOARD_CONFIGS_KEY}`,
+    type: "create",
+    data: ({ data }) => data,
   });
 
-  const [deleteKey] = useDataMutation({
-    resource: `dataStore/${NAMESPACE}/${CONFIG_KEY}`,
-    type: 'delete'
+  const [readGlobalConfig] = useDataMutation({
+    resource: `dataStore/${NAMESPACE}/${GLOBAL_CONFIG_KEY}`,
+    type: "read",
   });
 
-  // Load configurations on initial render
+  const [updateGlobalConfig] = useDataMutation({
+    resource: `dataStore/${NAMESPACE}/${GLOBAL_CONFIG_KEY}`,
+    type: "update",
+    data: ({ data }) => data,
+  });
+
+  const [createGlobalConfig] = useDataMutation({
+    resource: `dataStore/${NAMESPACE}/${GLOBAL_CONFIG_KEY}`,
+    type: "create",
+    data: ({ data }) => data,
+  });
+
+  // Load all configurations on init
   useEffect(() => {
     const loadConfigurations = async () => {
       setLoading(true);
-      setError(null);
 
       try {
-        // Try to read configuration
-        const configData = await readConfig();
-        setConfigurations(configData || {});
-        setLoading(false);
-      } catch (error) {
-        console.log('Error reading configuration:', error);
-        
-        // If key doesn't exist, create empty configuration
-        if (error.httpStatusCode === 404) {
-          try {
-            console.log('Creating initial configuration');
-            const defaultConfig = {};
-            await createConfig({ config: defaultConfig });
-            setConfigurations(defaultConfig);
-            setLoading(false);
-          } catch (createError) {
-            console.error('Error creating configuration:', createError);
-            setError(createError);
-            setLoading(false);
+        // Load dashboard configurations
+        try {
+          const dashboardConfigsData = await readDashboardConfigs();
+          setConfigurations(dashboardConfigsData || {});
+        } catch (configError) {
+          // If not found, use empty object
+          if (configError.httpStatusCode === 404) {
+            setConfigurations({});
+          } else {
+            console.error(
+              "Error loading dashboard configurations:",
+              configError
+            );
+            throw configError;
           }
-        } else {
-          console.error('Unexpected error:', error);
-          setError(error);
-          setLoading(false);
         }
+
+        // Load global configuration
+        try {
+          const globalConfigData = await readGlobalConfig();
+          setGlobalConfig(
+            globalConfigData || {
+              theme: "default",
+              language: "en",
+              pageSize: 10,
+              refreshInterval: 0,
+              globalFallback: true,
+            }
+          );
+        } catch (globalError) {
+          // If not found, use defaults
+          if (globalError.httpStatusCode === 404) {
+            // Keep default values
+          } else {
+            console.error("Error loading global configuration:", globalError);
+            throw globalError;
+          }
+        }
+      } catch (error) {
+        console.error("Error loading configurations:", error);
+        setError(error);
+      } finally {
+        setLoading(false);
       }
     };
 
     loadConfigurations();
-  }, [readConfig, createConfig]);
+  }, [readDashboardConfigs, readGlobalConfig]);
 
-  /**
-   * Save configuration to Data Store
-   * @param {string} key - Configuration key (e.g., dashboard ID)
-   * @param {Object} configuration - Configuration to save
-   * @param {boolean} [encrypt=false] - Whether to encrypt the data
-   * @returns {Promise<Object>} Updated configuration
-   */
-  const saveConfiguration = useCallback(async (key, configuration, encrypt = false) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Update local copy
-      const updatedConfigs = {
-        ...configurations,
-        [key]: {
-          ...configuration,
-          lastModified: new Date().toISOString()
-        }
-      };
-
-      // Update in data store
-      const params = encrypt ? { encrypt: true } : {};
-      await updateConfig({ config: updatedConfigs, params });
-      
-      // Update state
-      setConfigurations(updatedConfigs);
-      setLoading(false);
-      return updatedConfigs;
-    } catch (error) {
-      console.error('Error saving configuration:', error);
-      
-      // If key doesn't exist, try to create it
-      if (error.httpStatusCode === 404) {
-        try {
-          const newConfigs = { 
-            [key]: {
-              ...configuration,
-              lastModified: new Date().toISOString()
-            }
-          };
-          
-          const params = encrypt ? { encrypt: true } : {};
-          await createConfig({ config: newConfigs, params });
-          
-          // Update state
-          setConfigurations(newConfigs);
-          setLoading(false);
-          return newConfigs;
-        } catch (createError) {
-          console.error('Error creating configuration:', createError);
-          setError(createError);
-          setLoading(false);
-          throw createError;
-        }
-      } else {
-        setError(error);
-        setLoading(false);
-        throw error;
+  // Save configuration for a specific dashboard
+  const saveConfiguration = useCallback(
+    async (dashboardId, config) => {
+      if (!dashboardId) {
+        throw new Error("Dashboard ID is required");
       }
-    }
-  }, [configurations, updateConfig, createConfig]);
 
-  /**
-   * Get configuration for a specific key
-   * @param {string} key - Configuration key (e.g., dashboard ID)
-   * @returns {Object|null} Configuration for the key
-   */
-  const getConfiguration = useCallback((key) => {
-    return configurations[key] || null;
+      try {
+        setLoading(true);
+
+        // Get current configurations
+        let currentConfigs;
+        try {
+          currentConfigs = await readDashboardConfigs();
+        } catch (readError) {
+          // If not found, use empty object
+          if (readError.httpStatusCode === 404) {
+            currentConfigs = {};
+          } else {
+            throw readError;
+          }
+        }
+
+        console.log("Current configs before update:", currentConfigs);
+
+        // Update the specific dashboard configuration
+        const updatedConfigs = {
+          ...currentConfigs, // Keep ALL existing configurations
+          [dashboardId]: {
+            // Only update the specific one
+            ...(currentConfigs[dashboardId] || {}),
+            ...config,
+            lastModified: new Date().toISOString(),
+          },
+        };
+
+        console.log("Updated configs to save:", updatedConfigs);
+
+        // Save updated configurations
+        try {
+          await updateDashboardConfigs({ data: updatedConfigs });
+        } catch (updateError) {
+          // If key doesn't exist, create it
+          if (updateError.httpStatusCode === 404) {
+            await createDashboardConfigs({ data: updatedConfigs });
+          } else {
+            throw updateError;
+          }
+        }
+
+        // Update local state
+        setConfigurations(updatedConfigs);
+        console.log("Configurations updated in state:", updatedConfigs);
+
+        return updatedConfigs;
+      } catch (error) {
+        console.error(
+          `Error saving configuration for dashboard ${dashboardId}:`,
+          error
+        );
+        setError(error);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [readDashboardConfigs, updateDashboardConfigs, createDashboardConfigs]
+  );
+  // Save global configuration
+  const saveGlobalConfiguration = useCallback(
+    async (newGlobalConfig) => {
+      try {
+        setLoading(true);
+
+        // Get current global config
+        let currentGlobalConfig;
+        try {
+          currentGlobalConfig = await readGlobalConfig();
+        } catch (readError) {
+          // If not found, use defaults
+          if (readError.httpStatusCode === 404) {
+            currentGlobalConfig = {
+              theme: "default",
+              language: "en",
+              pageSize: 10,
+              refreshInterval: 0,
+              globalFallback: true,
+            };
+          } else {
+            throw readError;
+          }
+        }
+
+        // Update global config
+        const updatedConfig = {
+          ...currentGlobalConfig,
+          ...newGlobalConfig,
+          lastModified: new Date().toISOString(),
+        };
+
+        // Save updated global config
+        try {
+          await updateGlobalConfig({ data: updatedConfig });
+        } catch (updateError) {
+          // If key doesn't exist, create it
+          if (updateError.httpStatusCode === 404) {
+            await createGlobalConfig({ data: updatedConfig });
+          } else {
+            throw updateError;
+          }
+        }
+
+        // Update local state
+        setGlobalConfig(updatedConfig);
+
+        return updatedConfig;
+      } catch (error) {
+        console.error("Error saving global configuration:", error);
+        setError(error);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [readGlobalConfig, updateGlobalConfig, createGlobalConfig]
+  );
+
+  // Delete a dashboard configuration
+  const deleteDashboardConfiguration = useCallback(
+    async (dashboardId) => {
+      if (!dashboardId) {
+        throw new Error("Dashboard ID is required");
+      }
+
+      if (dashboardId === "default") {
+        throw new Error("Cannot delete default configuration");
+      }
+
+      try {
+        setLoading(true);
+
+        // Get current configurations
+        let currentConfigs;
+        try {
+          currentConfigs = await readDashboardConfigs();
+        } catch (readError) {
+          // If not found, nothing to delete
+          if (readError.httpStatusCode === 404) {
+            setLoading(false);
+            return {};
+          } else {
+            throw readError;
+          }
+        }
+
+        // Check if configuration exists
+        if (!currentConfigs[dashboardId]) {
+          setLoading(false);
+          return currentConfigs;
+        }
+
+        // Remove the dashboard configuration
+        const { [dashboardId]: removed, ...remainingConfigs } = currentConfigs;
+
+        // Save updated configurations
+        await updateDashboardConfigs({ data: remainingConfigs });
+
+        // Update local state
+        setConfigurations(remainingConfigs);
+
+        return remainingConfigs;
+      } catch (error) {
+        console.error(
+          `Error deleting configuration for dashboard ${dashboardId}:`,
+          error
+        );
+        setError(error);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [readDashboardConfigs, updateDashboardConfigs]
+  );
+
+  // Get dashboard configuration with fallback to default if needed
+  const getDashboardConfiguration = useCallback(
+    (dashboardId) => {
+      // First try to get specific dashboard configuration
+      if (dashboardId && configurations[dashboardId]) {
+        return configurations[dashboardId];
+      }
+
+      // Fall back to default if enabled in global config
+      if (globalConfig.globalFallback && configurations["default"]) {
+        return configurations["default"];
+      }
+
+      // Otherwise return null
+      return null;
+    },
+    [configurations, globalConfig]
+  );
+
+  // Get all dashboard configurations
+  const getAllDashboardConfigurations = useCallback(() => {
+    console.log("Current configurations:", configurations);
+    return configurations;
   }, [configurations]);
 
-  /**
-   * Get dashboard configuration (alias for getConfiguration)
-   * @param {string} dashboardId - Dashboard ID
-   * @returns {Object|null} Dashboard configuration
-   */
-  const getDashboardConfiguration = useCallback((dashboardId) => {
-    return getConfiguration(dashboardId);
-  }, [getConfiguration]);
+  // Get global configuration
+  const getGlobalConfiguration = useCallback(() => {
+    return globalConfig;
+  }, [globalConfig]);
 
-  /**
-   * Delete a specific configuration
-   * @param {string} key - Configuration key to delete
-   * @returns {Promise<Object>} Updated configurations
-   */
-  const deleteConfiguration = useCallback(async (key) => {
-    setLoading(true);
-    setError(null);
-
+  // Reset all configurations
+  const resetAllConfigurations = useCallback(async () => {
     try {
-      // Create a copy without the specified key
-      const { [key]: removed, ...remainingConfigs } = configurations;
+      setLoading(true);
 
-      // Update in data store
-      await updateConfig({ config: remainingConfigs });
-      
-      // Update state
-      setConfigurations(remainingConfigs);
-      setLoading(false);
-      return remainingConfigs;
+      // Default dashboard configurations
+      const defaultConfigs = {
+        default: {
+          pageSize: 10,
+          period: "LAST_12_MONTHS",
+          hiddenColumns: DEFAULT_HIDDEN_COLUMNS,
+          metadata: {
+            createdAt: new Date().toISOString(),
+            lastModified: new Date().toISOString(),
+          },
+        },
+      };
+
+      // Default global config
+      const defaultGlobalConfig = {
+        theme: "default",
+        language: "en",
+        pageSize: 10,
+        refreshInterval: 0,
+        globalFallback: true,
+        lastModified: new Date().toISOString(),
+      };
+
+      // Save default configurations
+      try {
+        await updateDashboardConfigs({ data: defaultConfigs });
+      } catch (configError) {
+        if (configError.httpStatusCode === 404) {
+          await createDashboardConfigs({ data: defaultConfigs });
+        } else {
+          throw configError;
+        }
+      }
+
+      try {
+        await updateGlobalConfig({ data: defaultGlobalConfig });
+      } catch (globalError) {
+        if (globalError.httpStatusCode === 404) {
+          await createGlobalConfig({ data: defaultGlobalConfig });
+        } else {
+          throw globalError;
+        }
+      }
+
+      // Update local state
+      setConfigurations(defaultConfigs);
+      setGlobalConfig(defaultGlobalConfig);
     } catch (error) {
-      console.error('Error deleting configuration:', error);
+      console.error("Error resetting configurations:", error);
       setError(error);
-      setLoading(false);
       throw error;
-    }
-  }, [configurations, updateConfig]);
-
-  /**
-   * Clear all configurations
-   * @returns {Promise<void>}
-   */
-  const clearAllConfigurations = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Set empty object instead of deleting key
-      await updateConfig({ config: {} });
-      setConfigurations({});
+    } finally {
       setLoading(false);
-    } catch (error) {
-      console.error('Error clearing all configurations:', error);
-      setError(error);
-      setLoading(false);
-      throw error;
     }
-  }, [updateConfig]);
+  }, [
+    updateDashboardConfigs,
+    createDashboardConfigs,
+    updateGlobalConfig,
+    createGlobalConfig,
+  ]);
 
   return {
-    configurations,
     loading,
     error,
     saveConfiguration,
-    getConfiguration,
+    saveGlobalConfiguration,
+    deleteDashboardConfiguration,
     getDashboardConfiguration,
-    deleteConfiguration,
-    clearAllConfigurations
+    getAllDashboardConfigurations,
+    getGlobalConfiguration,
+    resetAllConfigurations,
   };
 };
 
