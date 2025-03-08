@@ -14,7 +14,7 @@ import {
   CircularLoader,
   Box,
   Card,
-  Checkbox 
+  Checkbox
 } from '@dhis2/ui';
 
 import { FiFilter, FiDownload, FiRefreshCw, FiSettings, FiArrowUp, FiArrowDown, FiExternalLink } from 'react-icons/fi';
@@ -74,7 +74,7 @@ const EventReportViewer = ({ dashboardId }) => {
   const { getDashboardConfiguration, saveConfiguration } = useDataStore();
   const { fetchAnalytics, analyticsData, metadata, loading: analyticsLoading, error: analyticsError, exportToCSV } = useAnalytics();
   const { getEventReportDetails, getAnalyticsParams, loading: reportsLoading } = useEventReports();
-  const { globalConfig } = useConfiguration();
+  const { globalConfiguration } = useConfiguration();
 
   // Component state management
   const [page, setPage] = useState(1);
@@ -95,6 +95,10 @@ const EventReportViewer = ({ dashboardId }) => {
     getDashboardConfiguration(dashboardId),
     [dashboardId, getDashboardConfiguration]
   );
+
+  // Debug logging
+  console.log("Dashboard ID:", dashboardId);
+  console.log("Retrieved configuration:", config);
 
   // Function for initial data fetching
   const fetchInitialData = useCallback(() => {
@@ -671,12 +675,12 @@ const EventReportViewer = ({ dashboardId }) => {
                               <Button
                                 small
                                 icon={
-                                  cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION' 
-                                  ? <TrackerCaptureIcon /> 
-                                  : <CaptureIcon />
+                                  cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION'
+                                    ? <TrackerCaptureIcon />
+                                    : <CaptureIcon />
                                 }
                               >
-                               
+
                               </Button>
                             </a>
                           ) : (
@@ -731,12 +735,12 @@ const EventReportViewer = ({ dashboardId }) => {
                             <Button
                               small
                               icon={
-                                cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION' 
-                                ? <TrackerCaptureIcon /> 
-                                : <CaptureIcon />
+                                cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION'
+                                  ? <TrackerCaptureIcon />
+                                  : <CaptureIcon />
                               }
                             >
-                              
+
                             </Button>
                           </a>
                         ) : (

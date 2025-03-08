@@ -323,17 +323,23 @@ const useDataStore = () => {
   // Get dashboard configuration with fallback to default if needed
   const getDashboardConfiguration = useCallback(
     (dashboardId) => {
+      console.log("Getting config for dashboardId:", dashboardId);
+      console.log("Available configurations:", configurations);
+
       // First try to get specific dashboard configuration
       if (dashboardId && configurations[dashboardId]) {
+        console.log("Found specific configuration for dashboard");
         return configurations[dashboardId];
       }
 
       // Fall back to default if enabled in global config
       if (globalConfig.globalFallback && configurations["default"]) {
+        console.log("Using default configuration (fallback)");
         return configurations["default"];
       }
 
       // Otherwise return null
+      console.log("No configuration found for dashboard");
       return null;
     },
     [configurations, globalConfig]

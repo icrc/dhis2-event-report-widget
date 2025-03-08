@@ -27,6 +27,11 @@ const config = {
         minHeight: 500,
         defaultWidth: 550,
         defaultHeight: 600
+    },
+    // Add this dashboard configuration to hide the header and sidebar
+    dashboard: {
+        hideTitle: true,
+        hideGlobalHeaderAndSideBar: true
     }
 }
 

@@ -26,7 +26,7 @@ const DashboardSelector = ({ embedded = false }) => {
   const [saveMessage, setSaveMessage] = useState(null);
   
   // Get existing configurations
-  const dashboardConfigs = getAllDashboardConfigurations();
+  const dashboardConfigurations = getAllDashboardConfigurations();
   
   // Handle configuration mapping
   const handleSaveMapping = async () => {
@@ -107,7 +107,7 @@ const DashboardSelector = ({ embedded = false }) => {
         <Box marginBottom="16px">
           <SingleSelectField
             label="Select Event Report"
-            selected={selectedReport || (dashboardConfigs[selectedDashboard]?.eventReportId) || ''}
+            selected={selectedReport || (dashboardConfigurations[selectedDashboard]?.eventReportId) || ''}
             onChange={({ selected }) => setSelectedReport(selected)}
             filterable
           >
@@ -125,7 +125,7 @@ const DashboardSelector = ({ embedded = false }) => {
               primary
               onClick={handleSaveMapping}
               loading={isSaving}
-              disabled={isSaving || (!selectedReport && !dashboardConfigs[selectedDashboard]?.eventReportId)}
+              disabled={isSaving || (!selectedReport && !dashboardConfigurations[selectedDashboard]?.eventReportId)}
             >
               Save Mapping
             </Button>
@@ -144,7 +144,7 @@ const DashboardSelector = ({ embedded = false }) => {
       {/* Display current mappings */}
       <Box marginTop="32px">
         <h3>Current Dashboard Mappings</h3>
-        {Object.keys(dashboardConfigs).length === 0 ? (
+        {Object.keys(dashboardConfigurations).length === 0 ? (
           <p>No dashboard mappings configured yet.</p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -155,7 +155,7 @@ const DashboardSelector = ({ embedded = false }) => {
               </tr>
             </thead>
             <tbody>
-              {Object.entries(dashboardConfigs).map(([dashId, config]) => {
+              {Object.entries(dashboardConfigurations).map(([dashId, config]) => {
                 const dashboard = dashboards.find(d => d.id === dashId);
                 const report = eventReports.find(r => r.id === config.eventReportId);
                 

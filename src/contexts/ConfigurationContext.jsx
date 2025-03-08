@@ -6,8 +6,8 @@ import { useAuth } from './AuthContext';
  * Configuration Context for managing app configurations
  */
 const ConfigurationContext = createContext({
-  globalConfig: {},
-  dashboardConfigs: {},
+  globalConfiguration: {},
+  dashboardConfigurations: {},
   setGlobalConfig: () => {},
   updateDashboardConfig: () => {},
   resetConfiguration: () => {},
@@ -17,8 +17,8 @@ const ConfigurationContext = createContext({
 
 // Define namespaces for data store
 const NAMESPACE = 'EVENT_REPORT_WIDGET';
-const GLOBAL_CONFIG_KEY = 'globalConfig';
-const DASHBOARD_CONFIGS_KEY = 'dashboardConfigs';
+const GLOBAL_CONFIG_KEY = 'globalConfiguration';
+const DASHBOARD_CONFIGS_KEY = 'dashboardConfigurations';
 
 /**
  * ConfigurationProvider component to manage application configurations
@@ -30,14 +30,14 @@ export const ConfigurationProvider = ({ children }) => {
   const { hasConfigAccess, isSuperUser } = useAuth();
   
   // State for managing configurations
-  const [globalConfig, setGlobalConfig] = useState({
+  const [globalConfiguration, setGlobalConfig] = useState({
     theme: 'default',
     language: 'en',
     pageSize: 10,
     refreshInterval: 0
   });
   
-  const [dashboardConfigs, setDashboardConfigs] = useState({});
+  const [dashboardConfigurations, setDashboardConfigs] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -129,7 +129,7 @@ export const ConfigurationProvider = ({ children }) => {
 
     try {
       const updatedConfig = {
-        ...globalConfig,
+        ...globalConfiguration,
         ...newConfig,
         lastModified: new Date().toISOString()
       };
@@ -166,7 +166,7 @@ export const ConfigurationProvider = ({ children }) => {
 
     try {
       // Get current configurations to avoid overwriting other dashboards
-      let currentConfigs = { ...dashboardConfigs };
+      let currentConfigs = { ...dashboardConfigurations };
       
       const updatedConfigs = {
         ...currentConfigs,
@@ -288,16 +288,16 @@ export const ConfigurationProvider = ({ children }) => {
   const isConfigValid = () => {
     // Add specific validation logic
     return (
-      globalConfig.pageSize > 0 && 
-      globalConfig.pageSize <= 100 &&
-      globalConfig.refreshInterval >= 0
+      globalConfiguration.pageSize > 0 && 
+      globalConfiguration.pageSize <= 100 &&
+      globalConfiguration.refreshInterval >= 0
     );
   };
 
   // Context value with configurations and methods
   const contextValue = {
-    globalConfig,
-    dashboardConfigs,
+    globalConfiguration,
+    dashboardConfigurations,
     isLoading,
     error,
     

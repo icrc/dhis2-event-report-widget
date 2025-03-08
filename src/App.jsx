@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   DataProvider,
-  useConfig
+  useConfig,
+  useDataEngine
 } from '@dhis2/app-runtime';
 import {
   CssReset,
@@ -54,25 +55,87 @@ const App = () => {
 
   // Use authorization hook
   const { hasConfigAccess, isSuperUser, isLoading: authLoading } = useAuthorization();
-
- // Try to get the dashboard ID from URL or context
- useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const dashboardId = urlParams.get('dashboardId');
+  
+  // Get DHIS2 data engine for API calls
+  const engine = useDataEngine();
+  
+  // Detect dashboard context using dashboardItemId
+  useEffect(() => {
+    const detectDashboardContext = async () => {
+      console.log("Detecting dashboard context...");
+      console.log("Current URL:", window.location.href);
+      
+      const urlParams = new URLSearchParams(window.location.search);
+      
+      // Check if we're in a dashboard item
+      const dashboardItemId = urlParams.get('dashboardItemId');
+      
+      if (dashboardItemId) {
+        console.log("Found dashboard item ID:", dashboardItemId);
+        setAppLoading(true);
+        
+        try {
+          // Fetch all dashboards with their items
+          const result = await engine.query({
+            dashboards: {
+              resource: 'dashboards',
+              params: {
+                fields: 'id,name,dashboardItems[id,appKey]',
+                paging: false
+              }
+            }
+          });
+          
+          console.log("Fetched dashboards:", result.dashboards);
+          
+          // Find which dashboard contains our item
+          let foundDashboardId = null;
+          
+          if (result.dashboards && result.dashboards.dashboards) {
+            for (const dashboard of result.dashboards.dashboards) {
+              if (dashboard.dashboardItems) {
+                const matchingItem = dashboard.dashboardItems.find(
+                  item => item.id === dashboardItemId && item.appKey === 'event-report-widget'
+                );
+                
+                if (matchingItem) {
+                  foundDashboardId = dashboard.id;
+                  console.log(`Found matching dashboard: ${dashboard.name} (${dashboard.id})`);
+                  break;
+                }
+              }
+            }
+          }
+          
+          if (foundDashboardId) {
+            console.log("Setting dashboard ID to:", foundDashboardId);
+            setCurrentDashboardId(foundDashboardId);
+          } else {
+            console.log("Dashboard not found, using default configuration");
+            setCurrentDashboardId('default');
+          }
+        } catch (error) {
+          console.error("Error fetching dashboards:", error);
+          console.log("Using default configuration due to error");
+          setCurrentDashboardId('default');
+        } finally {
+          setAppLoading(false);
+        }
+      } else {
+        // If we're not in a dashboard item, use default
+        console.log("Not in a dashboard context, using default configuration");
+        setCurrentDashboardId('default');
+      }
+    };
     
-    if (dashboardId) {
-      setCurrentDashboardId(dashboardId);
-    } else {
-      // Set to null to indicate we're not in a dashboard context
-      setCurrentDashboardId(null);
-    }
-  }, []);
+    detectDashboardContext();
+  }, [engine]);
 
   // Open configuration modal
   const openConfigModal = useCallback(() => {
     setIsConfigModalOpen(true);
   }, []);
-
+  
   // Render configuration button (for users with config access)
   const renderConfigButtons = useCallback(() => {
     if (!hasConfigAccess) return null;
@@ -113,8 +176,8 @@ const App = () => {
   }, [currentDashboardId]);
 
   // Show loading while authorization is being checked
-  if (authLoading) {
-    return <LoadingSpinner message="Initializing application..." />;
+  if (authLoading || appLoading) {
+    return <LoadingSpinner message={appLoading ? "Finding dashboard context..." : "Initializing application..."} />;
   }
 
   return (
@@ -128,11 +191,7 @@ const App = () => {
 
         {/* Content with Error Boundary */}
         <ErrorBoundary>
-          {appLoading ? (
-            <LoadingSpinner />
-          ) : (
-            renderContent()
-          )}
+          {renderContent()}
         </ErrorBoundary>
 
         {/* Unified Configuration Modal */}
