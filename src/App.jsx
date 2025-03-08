@@ -7,8 +7,6 @@ import {
 import {
   CssReset,
   CssVariables,
-  TabBar,
-  Tab,
   NoticeBox,
   Button,
   CircularLoader,
@@ -214,23 +212,6 @@ const App = () => {
     );
   }, [hasConfigAccess, openConfigModal, isDashboardEmbedded]);
 
-  // Render tab navigation - only the Event Reports tab
-  const renderTabNavigation = useCallback(() => {
-    // Don't show tabs if not embedded (we'll show config directly)
-    if (!isDashboardEmbedded) return null;
-    
-    return (
-      <TabBar>
-        <Tab
-          key="viewer"
-          selected={true}
-        >
-          Event Reports
-        </Tab>
-      </TabBar>
-    );
-  }, [isDashboardEmbedded]);
-
   // Render content
   const renderContent = useCallback(() => {
     // When not embedded, show configuration list
@@ -270,9 +251,6 @@ const App = () => {
       <div className="app-container" style={{ padding: '16px' }}>
         {/* Configuration Button */}
         {renderConfigButtons()}
-
-        {/* Tab Navigation */}
-        {renderTabNavigation()}
 
         {/* Content with Error Boundary */}
         <ErrorBoundary>

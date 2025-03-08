@@ -166,6 +166,14 @@
   height: 16px;
 }
 
+/* Sticky header styles */
+.stickyHeader {
+  position: sticky;
+  top: 0;
+  background-color: white;
+  z-index: 1;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .controlsRow {

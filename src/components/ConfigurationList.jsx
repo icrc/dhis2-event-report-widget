@@ -11,11 +11,13 @@ import {
   Button,
   CircularLoader,
   NoticeBox,
-  Tooltip
+  Tooltip,
+  InputField
 } from '@dhis2/ui';
 import { useDataStore } from '../hooks/useDataStore';
 import { useDashboards } from '../hooks/useDashboards';
 import { useEventReports } from '../hooks/useEventReports';
+import { FiArrowUp, FiArrowDown } from 'react-icons/fi';
 
 const ConfigurationList = ({ 
   openConfigModal, 
@@ -28,6 +30,8 @@ const ConfigurationList = ({
   const { dashboards } = useDashboards();
   const { eventReports } = useEventReports();
   const [configurations, setConfigurations] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: 'dashboardName', direction: 'asc' });
 
   // Create a function to load configurations that we can call directly
   const loadConfigurations = useCallback(async () => {
@@ -115,32 +119,37 @@ const ConfigurationList = ({
     loadConfigurations();
   };
 
+  // Handle search term change
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+  };
+
+  // Handle sorting
+  const handleSort = (key) => {
+    setSortConfig(prev => {
+      const direction = prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
+      return { key, direction };
+    });
+  };
+
+  // Apply search and sorting to configurations
+  const filteredAndSortedConfigurations = configurations
+    .filter(config => 
+      config.dashboardName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      config.reportName.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+
   if (loading) {
     return (
       <Card>
         <div style={{ padding: '32px', textAlign: 'center' }}>
           <CircularLoader />
           <p style={{ marginTop: '16px' }}>Loading configurations...</p>
-        </div>
-      </Card>
-    );
-  }
-
-  if (configurations.length === 0) {
-    return (
-      <Card>
-        <div style={{ padding: '32px' }}>
-          <NoticeBox title="No Configurations Found">
-            <p>There are no configurations available. Click the button below to create one.</p>
-          </NoticeBox>
-          
-          {hasConfigAccess && (
-            <div style={{ marginTop: '16px', textAlign: 'center' }}>
-              <Button primary onClick={openConfigModal}>
-                Create Configuration
-              </Button>
-            </div>
-          )}
         </div>
       </Card>
     );
@@ -154,40 +163,79 @@ const ConfigurationList = ({
           <Button small onClick={handleRefresh}>Refresh</Button>
         </div>
         
+        <InputField
+          placeholder="Search configurations..."
+          value={searchTerm}
+          onChange={({ value }) => handleSearchChange(value)}
+          dense
+          style={{ marginBottom: '16px' }}
+        />
+        
         <p>Below is a list of all configured event report widgets. The default configuration is used when no dashboard-specific configuration is available.</p>
         
-        <Table>
-          <TableHead>
-            <TableRowHead>
-              <TableCellHead>Dashboard</TableCellHead>
-              <TableCellHead>Event Report</TableCellHead>
-              <TableCellHead>Page Size</TableCellHead>
-              <TableCellHead>Period</TableCellHead>
-              <TableCellHead>Last Modified</TableCellHead>
-            </TableRowHead>
-          </TableHead>
-          <TableBody>
-            {configurations.map(config => (
-              <TableRow key={config.dashboardId}>
-                <TableCell>
-                  <Tooltip content={config.dashboardId === 'default' ? 'Default Configuration' : `Dashboard ID: ${config.dashboardId}`}>
-                    <span style={{ fontWeight: config.dashboardId === 'default' ? 'bold' : 'normal' }}>
-                      {config.dashboardName}
-                    </span>
-                  </Tooltip>
-                </TableCell>
-                <TableCell>
-                  <Tooltip content={`Report ID: ${config.eventReportId}`}>
-                    <span>{config.reportName}</span>
-                  </Tooltip>
-                </TableCell>
-                <TableCell>{config.pageSize}</TableCell>
-                <TableCell>{formatPeriod(config.period)}</TableCell>
-                <TableCell>{formatDate(config.lastModified)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        {filteredAndSortedConfigurations.length === 0 ? (
+          <NoticeBox title="No Matching Configurations">
+            <p>No configurations match your search criteria. Please adjust your search term.</p>
+          </NoticeBox>
+        ) : (
+          <Table>
+            <TableHead>
+              <TableRowHead>
+                <TableCellHead onClick={() => handleSort('dashboardName')}>
+                  Dashboard
+                  {sortConfig.key === 'dashboardName' && (
+                    <span>{sortConfig.direction === 'asc' ? <FiArrowUp /> : <FiArrowDown />}</span>
+                  )}
+                </TableCellHead>
+                <TableCellHead onClick={() => handleSort('reportName')}>
+                  Event Report
+                  {sortConfig.key === 'reportName' && (
+                    <span>{sortConfig.direction === 'asc' ? <FiArrowUp /> : <FiArrowDown />}</span>
+                  )}
+                </TableCellHead>
+                <TableCellHead onClick={() => handleSort('pageSize')}>
+                  Page Size
+                  {sortConfig.key === 'pageSize' && (
+                    <span>{sortConfig.direction === 'asc' ? <FiArrowUp /> : <FiArrowDown />}</span>
+                  )}
+                </TableCellHead>
+                <TableCellHead onClick={() => handleSort('period')}>
+                  Period
+                  {sortConfig.key === 'period' && (
+                    <span>{sortConfig.direction === 'asc' ? <FiArrowUp /> : <FiArrowDown />}</span>
+                  )}
+                </TableCellHead>
+                <TableCellHead onClick={() => handleSort('lastModified')}>
+                  Last Modified
+                  {sortConfig.key === 'lastModified' && (
+                    <span>{sortConfig.direction === 'asc' ? <FiArrowUp /> : <FiArrowDown />}</span>
+                  )}
+                </TableCellHead>
+              </TableRowHead>
+            </TableHead>
+            <TableBody>
+              {filteredAndSortedConfigurations.map(config => (
+                <TableRow key={config.dashboardId}>
+                  <TableCell>
+                    <Tooltip content={config.dashboardId === 'default' ? 'Default Configuration' : `Dashboard ID: ${config.dashboardId}`}>
+                      <span style={{ fontWeight: config.dashboardId === 'default' ? 'bold' : 'normal' }}>
+                        {config.dashboardName}
+                      </span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip content={`Report ID: ${config.eventReportId}`}>
+                      <span>{config.reportName}</span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>{config.pageSize}</TableCell>
+                  <TableCell>{formatPeriod(config.period)}</TableCell>
+                  <TableCell>{formatDate(config.lastModified)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
         
         <div style={{ marginTop: '16px', color: '#666', fontSize: '0.9em' }}>
           <p>Note: To view a specific configuration in action, add this app to the corresponding dashboard.</p>

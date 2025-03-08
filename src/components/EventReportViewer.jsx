@@ -14,7 +14,8 @@ import {
   CircularLoader,
   Box,
   Card,
-  Checkbox
+  Checkbox,
+  Tooltip
 } from '@dhis2/ui';
 
 import { FiFilter, FiDownload, FiRefreshCw, FiSettings, FiArrowUp, FiArrowDown, FiExternalLink } from 'react-icons/fi';
@@ -264,8 +265,24 @@ const EventReportViewer = ({ dashboardId }) => {
       }
     });
 
-    return filteredData;
-  }, [analyticsData, hiddenColumns, outputType]);
+    // Apply search term filter
+    const searchTermLower = searchTerm.toLowerCase();
+    const filteredBySearch = filteredData.filter((row, rowIndex) => {
+      if (rowIndex === 0) return true; // Keep header row
+      return row.some(cell => typeof cell === 'string' && cell.toLowerCase().includes(searchTermLower));
+    });
+
+    // Apply column filters
+    const filteredByColumns = filteredBySearch.filter((row, rowIndex) => {
+      if (rowIndex === 0) return true; // Keep header row
+      return Object.entries(columnFilters).every(([colIndex, filterValue]) => {
+        const cellValue = row[colIndex];
+        return typeof cellValue === 'string' && cellValue.toLowerCase().includes(filterValue.toLowerCase());
+      });
+    });
+
+    return filteredByColumns;
+  }, [analyticsData, hiddenColumns, outputType, searchTerm, columnFilters]);
 
   // Handle search term change
   const handleSearchChange = useCallback((value) => {
@@ -520,12 +537,112 @@ const EventReportViewer = ({ dashboardId }) => {
   // Render no data state
   if (!filteredAnalyticsData || filteredAnalyticsData.length <= 1) {
     return (
-      <NoticeBox title="No Data Available">
-        <p>No data found for the selected event report.</p>
-        <Button small onClick={handleRefresh} style={{ marginTop: '8px' }}>
-          Refresh
-        </Button>
-      </NoticeBox>
+      <Card>
+        <div className={styles.container}>
+          {/* Event Report Title */}
+          {eventReportDetails && (
+            <h2 className={styles.header}>
+              {eventReportDetails.displayName || eventReportDetails.name}
+              {eventReportDetails.outputType && (
+                <span style={{ fontSize: '0.8em', fontWeight: 'normal', marginLeft: '8px', color: '#666' }}>
+                  ({eventReportDetails.outputType === 'ENROLLMENT' ? 'Enrollment Data' : 'Event Data'})
+                </span>
+              )}
+            </h2>
+          )}
+
+          {/* Control Section */}
+          <div className={styles.controlsRow}>
+            <div className={styles.searchField}>
+              <InputField
+                placeholder="Search..."
+                value={searchTerm}
+                onChange={({ value }) => handleSearchChange(value)}
+                dense
+              />
+            </div>
+
+            <div className={styles.buttonGroup}>
+              <Button
+                onClick={() => setShowFilters(!showFilters)}
+                small
+                icon={<FiFilter />}
+              >
+                {showFilters ? 'Hide Filters' : 'Show Filters'}
+              </Button>
+
+              <Button
+                onClick={handleExport}
+                small
+                icon={<FiDownload />}
+              >
+                Export CSV
+              </Button>
+
+              <Button
+                onClick={handleRefresh}
+                small
+                loading={isRefreshing}
+                icon={<FiRefreshCw />}
+              >
+                Refresh
+              </Button>
+
+              {/* Column Selector Button */}
+              <Button
+                small
+                icon={<FiSettings />}
+                onClick={() => setShowColumnSelector(!showColumnSelector)}
+              >
+                Columns
+              </Button>
+            </div>
+          </div>
+
+          {/* Column Selector */}
+          {showColumnSelector && (
+            <div className={styles.columnSelector}>
+              <div className={styles.columnSelectorHeader}>
+                <h3>Configure Visible Columns</h3>
+                <Button small onClick={resetColumnVisibility}>Reset to Default</Button>
+              </div>
+              <div className={styles.columnOptions}>
+                {allColumns.map((column, index) => (
+                  <div key={index} className={styles.columnOption}>
+                    <Checkbox
+                      checked={!hiddenColumns.includes(column)}
+                      label={column}
+                      onChange={() => toggleColumnVisibility(column)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Filters Section */}
+          {showFilters && filteredAnalyticsData[0] && (
+            <div className={styles.filtersRow}>
+              {/* Don't show filter for the action column */}
+              {filteredAnalyticsData[0].slice(0, -1).map((header, index) => (
+                <div key={index} className={styles.filterField}>
+                  <InputField
+                    label={`Filter by ${header}`}
+                    value={columnFilters[index] || ''}
+                    onChange={({ value }) => handleColumnFilterChange(index, value)}
+                    dense
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* No Matching Data Message */}
+          <NoticeBox title="No Matching Data">
+            <p>No data matches your search criteria. Please adjust your search term or filters.</p>
+          </NoticeBox>
+        </div>
+      </Card>
     );
   }
 
@@ -674,13 +791,14 @@ const EventReportViewer = ({ dashboardId }) => {
                             >
                               <Button
                                 small
+                                className={styles.actionButton}
                                 icon={
                                   cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION'
                                     ? <TrackerCaptureIcon />
                                     : <CaptureIcon />
                                 }
                               >
-
+                                View Details
                               </Button>
                             </a>
                           ) : (
@@ -734,13 +852,14 @@ const EventReportViewer = ({ dashboardId }) => {
                           >
                             <Button
                               small
+                              className={styles.actionButton}
                               icon={
                                 cell.outputType === 'ENROLLMENT' || programType === 'WITH_REGISTRATION'
                                   ? <TrackerCaptureIcon />
                                   : <CaptureIcon />
                               }
                             >
-
+                              View Details
                             </Button>
                           </a>
                         ) : (
