@@ -25,6 +25,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import EventReportViewer from './components/EventReportViewer';
 import UnifiedConfigManager from './components/UnifiedConfigManager';
 import ConfigurationList from './components/ConfigurationList';
+import DataStoreInitializer from './components/DataStoreInitializer';
 
 // Import hooks
 import { useAuthorization } from './hooks/useAuthorization';
@@ -263,6 +264,9 @@ const App = () => {
 
   return (
     <ErrorBoundary>
+      {/* Add the DataStoreInitializer */}
+      <DataStoreInitializer />
+      
       <div className="app-container" style={{ padding: '16px' }}>
         {/* Configuration Button */}
         {renderConfigButtons()}

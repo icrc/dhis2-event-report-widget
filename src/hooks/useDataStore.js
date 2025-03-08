@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { useDataQuery, useDataMutation } from "@dhis2/app-runtime";
+import { useDataQuery, useDataMutation, useDataEngine } from "@dhis2/app-runtime";
 
 /**
  * Default columns to hide in the event report view
@@ -79,6 +79,45 @@ const useDataStore = () => {
     type: "create",
     data: ({ data }) => data,
   });
+
+  // Function to refresh configurations
+  const refreshConfigurations = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Re-fetch configurations from data store
+      try {
+        const configs = await readDashboardConfigs();
+        setConfigurations(configs || {});
+      } catch (configError) {
+        if (configError.httpStatusCode === 404) {
+          setConfigurations({});
+        } else {
+          throw configError;
+        }
+      }
+      
+      // Re-fetch global config
+      try {
+        const globalConfigData = await readGlobalConfig();
+        setGlobalConfig(globalConfigData || {
+          theme: "default",
+          language: "en",
+          pageSize: 10,
+          refreshInterval: 0,
+          globalFallback: true,
+        });
+      } catch (globalError) {
+        if (globalError.httpStatusCode !== 404) {
+          throw globalError;
+        }
+      }
+    } catch (error) {
+      console.error("Error refreshing configurations:", error);
+      setError(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [readDashboardConfigs, readGlobalConfig]);
 
   // Load all configurations on init
   useEffect(() => {
@@ -203,6 +242,7 @@ const useDataStore = () => {
     },
     [readDashboardConfigs, updateDashboardConfigs, createDashboardConfigs]
   );
+  
   // Save global configuration
   const saveGlobalConfiguration = useCallback(
     async (newGlobalConfig) => {
@@ -325,24 +365,24 @@ const useDataStore = () => {
     (dashboardId) => {
       console.log("Getting config for dashboardId:", dashboardId);
       console.log("Available configurations:", configurations);
-
-      // First try to get specific dashboard configuration
-      if (dashboardId && configurations[dashboardId]) {
-        console.log("Found specific configuration for dashboard");
+      
+      // Handle specific dashboard configuration
+      if (dashboardId && dashboardId !== 'default' && configurations[dashboardId]) {
+        console.log("Found specific configuration for dashboard:", dashboardId);
         return configurations[dashboardId];
       }
-
-      // Fall back to default if enabled in global config
-      if (globalConfig.globalFallback && configurations["default"]) {
-        console.log("Using default configuration (fallback)");
+      
+      // Always use default if available
+      if (configurations["default"]) {
+        console.log("Using default configuration");
         return configurations["default"];
       }
-
-      // Otherwise return null
+      
+      // No configuration found
       console.log("No configuration found for dashboard");
       return null;
     },
-    [configurations, globalConfig]
+    [configurations]
   );
 
   // Get all dashboard configurations
@@ -432,6 +472,7 @@ const useDataStore = () => {
     getAllDashboardConfigurations,
     getGlobalConfiguration,
     resetAllConfigurations,
+    refreshConfigurations
   };
 };
 
