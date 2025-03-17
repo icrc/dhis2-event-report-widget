@@ -139,10 +139,15 @@ const EventReportViewer = ({ dashboardId }) => {
 
   // Initial data load and configuration
   useEffect(() => {
+    console.log("EventReportViewer: Configuration updated", config);
+    
     // Only fetch on initial load and when event report ID changes
     if (config?.eventReportId) {
+      console.log("EventReportViewer: Found valid configuration with event report ID:", config.eventReportId);
+      
       // Get initial page size as a string
       const initialPageSize = config.pageSize ? String(config.pageSize) : '50';
+      console.log("EventReportViewer: Using page size:", initialPageSize);
 
       // Set the initial page size from config
       if (pageSizeOptions.includes(initialPageSize)) {
@@ -160,9 +165,19 @@ const EventReportViewer = ({ dashboardId }) => {
 
       // Initial fetch with page 1
       fetchInitialData();
+    } else {
+      console.log("EventReportViewer: No valid configuration with event report ID found");
     }
     // Only depend on config.eventReportId, not the entire config object
   }, [config?.eventReportId, fetchInitialData]);
+  
+  // Add a secondary effect to re-fetch if dashboardId changes
+  useEffect(() => {
+    console.log("EventReportViewer: Dashboard ID changed to:", dashboardId);
+    
+    // This will trigger a re-fetch of configuration and data when dashboardId changes
+    // No need to do anything here as the config will be updated by useDataStore and trigger the above effect
+  }, [dashboardId]);
 
   // Get event report details for the current configuration
   const eventReportDetails = useMemo(() => {
@@ -315,10 +330,6 @@ const EventReportViewer = ({ dashboardId }) => {
     }
   }, [fetchData]);
 
-  // Handle page size change
-  // Fix for the handlePageSizeChange function in EventReportViewer.jsx
-
-
   // Fix for the handlePageSizeChange function
   const handlePageSizeChange = useCallback((value) => {
     // The DHIS2 Pagination component might be calling this differently than expected
@@ -402,7 +413,6 @@ const EventReportViewer = ({ dashboardId }) => {
       setIsRefreshing(false);
     }
   }, [pageSize, pageSizeOptions, config, dashboardId, getEventReportDetails, getAnalyticsParams, fetchAnalytics, saveConfiguration]);
-
 
   // Export data to CSV
   const handleExport = useCallback(() => {

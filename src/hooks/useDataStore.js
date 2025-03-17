@@ -1,5 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
-import { useDataQuery, useDataMutation, useDataEngine } from "@dhis2/app-runtime";
+import {
+  useDataQuery,
+  useDataMutation,
+  useDataEngine,
+} from "@dhis2/app-runtime";
 
 /**
  * Default columns to hide in the event report view
@@ -95,17 +99,19 @@ const useDataStore = () => {
           throw configError;
         }
       }
-      
+
       // Re-fetch global config
       try {
         const globalConfigData = await readGlobalConfig();
-        setGlobalConfig(globalConfigData || {
-          theme: "default",
-          language: "en",
-          pageSize: 10,
-          refreshInterval: 0,
-          globalFallback: true,
-        });
+        setGlobalConfig(
+          globalConfigData || {
+            theme: "default",
+            language: "en",
+            pageSize: 10,
+            refreshInterval: 0,
+            globalFallback: true,
+          }
+        );
       } catch (globalError) {
         if (globalError.httpStatusCode !== 404) {
           throw globalError;
@@ -242,7 +248,7 @@ const useDataStore = () => {
     },
     [readDashboardConfigs, updateDashboardConfigs, createDashboardConfigs]
   );
-  
+
   // Save global configuration
   const saveGlobalConfiguration = useCallback(
     async (newGlobalConfig) => {
@@ -365,24 +371,37 @@ const useDataStore = () => {
     (dashboardId) => {
       console.log("Getting config for dashboardId:", dashboardId);
       console.log("Available configurations:", configurations);
-      
+
+      // Check if the dashboardId might be undefined or null
+      if (!dashboardId) {
+        console.log(
+          "Dashboard ID is undefined or null, using default configuration"
+        );
+        return configurations["default"] || null;
+      }
+
       // Handle specific dashboard configuration
-      if (dashboardId && dashboardId !== 'default' && configurations[dashboardId]) {
+      if (dashboardId !== "default" && configurations[dashboardId]) {
         console.log("Found specific configuration for dashboard:", dashboardId);
         return configurations[dashboardId];
       }
-      
-      // Always use default if available
-      if (configurations["default"]) {
-        console.log("Using default configuration");
+
+      // Check if global fallback is enabled and we have a default configuration
+      const useGlobalFallback =
+        globalConfig && globalConfig.globalFallback !== false;
+
+      if (useGlobalFallback && configurations["default"]) {
+        console.log("Using default configuration as fallback");
         return configurations["default"];
       }
-      
+
       // No configuration found
-      console.log("No configuration found for dashboard");
+      console.log(
+        "No configuration found for dashboard and no fallback available"
+      );
       return null;
     },
-    [configurations]
+    [configurations, globalConfig]
   );
 
   // Get all dashboard configurations
@@ -472,7 +491,7 @@ const useDataStore = () => {
     getAllDashboardConfigurations,
     getGlobalConfiguration,
     resetAllConfigurations,
-    refreshConfigurations
+    refreshConfigurations,
   };
 };
 
