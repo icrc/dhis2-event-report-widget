@@ -57,6 +57,7 @@ const App = () => {
   const [configListKey, setConfigListKey] = useState(0);
   const [refreshTimestamp, setRefreshTimestamp] = useState(Date.now());
 
+
   // Use authorization hook
   const { hasConfigAccess, isSuperUser, isLoading: authLoading } = useAuthorization();
 
@@ -89,6 +90,7 @@ const App = () => {
       if (isEmbedded) {
         console.log("App is embedded in a dashboard");
         setAppLoading(true);
+        setIsDashboardEmbedded(isEmbedded);
 
         // Function to identify the current dashboard
         const identifyCurrentDashboard = async () => {
@@ -472,7 +474,7 @@ const App = () => {
     }
 
     // When embedded, show the report viewer
-    return <EventReportViewer dashboardId={currentDashboardId} />;
+    return <EventReportViewer dashboardId={currentDashboardId} isEmbedded={isDashboardEmbedded} />;
   }, [
     currentDashboardId,
     isDashboardEmbedded,
@@ -506,6 +508,7 @@ const App = () => {
           isOpen={isConfigModalOpen}
           onClose={handleConfigModalClose}
           dashboardId={currentDashboardId}
+          isEmbedded={isDashboardEmbedded}
         />
       </div>
     </ErrorBoundary>

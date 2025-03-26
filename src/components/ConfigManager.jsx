@@ -243,12 +243,12 @@ const ConfigManager = ({ dashboardId, onClose, embedded = false }) => {
   };
 
   // Check user authorization
-  if (!hasConfigAccess) {
+  if (!hasConfigAccess && !embedded) {
     return (
       <Box>
-        <NoticeBox error>
-          You do not have permission to manage configurations.
-          Only users with configuration access can modify widget settings.
+        <NoticeBox error title="Access Restricted">
+          <p>You don't have permission to manage widget configurations.</p>
+          <p>Please contact your system administrator for assistance.</p>
         </NoticeBox>
         {!embedded && (
           <Box marginTop="16px" display="flex" justifyContent="flex-end">

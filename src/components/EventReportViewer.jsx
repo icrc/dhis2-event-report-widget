@@ -25,6 +25,7 @@ import { useEventReports } from '../hooks/useEventReports';
 import { useConfiguration } from '../contexts/ConfigurationContext';
 import { useConfig } from '@dhis2/app-runtime';
 import styles from '../EventReportViewer.module.css';
+import { useAuthorization } from '../hooks/useAuthorization';
 
 /**
  * Default columns to hide in the event report view
@@ -67,7 +68,7 @@ const CaptureIcon = () => (
  * EventReportViewer Component
  * Displays analytics data for a specific dashboard's event report
  */
-const EventReportViewer = ({ dashboardId }) => {
+const EventReportViewer = ({ dashboardId, isEmbedded = false }) => {
   // Get baseUrl from DHIS2 app-runtime config
   const { baseUrl } = useConfig();
 
@@ -76,6 +77,7 @@ const EventReportViewer = ({ dashboardId }) => {
   const { fetchAnalytics, analyticsData, metadata, loading: analyticsLoading, error: analyticsError, exportToCSV } = useAnalytics();
   const { getEventReportDetails, getAnalyticsParams, loading: reportsLoading } = useEventReports();
   const { globalConfiguration } = useConfiguration();
+  const { hasConfigAccess } = useAuthorization();
 
   // Component state management
   const [page, setPage] = useState(1);
@@ -140,11 +142,11 @@ const EventReportViewer = ({ dashboardId }) => {
   // Initial data load and configuration
   useEffect(() => {
     console.log("EventReportViewer: Configuration updated", config);
-    
+
     // Only fetch on initial load and when event report ID changes
     if (config?.eventReportId) {
       console.log("EventReportViewer: Found valid configuration with event report ID:", config.eventReportId);
-      
+
       // Get initial page size as a string
       const initialPageSize = config.pageSize ? String(config.pageSize) : '50';
       console.log("EventReportViewer: Using page size:", initialPageSize);
@@ -170,11 +172,11 @@ const EventReportViewer = ({ dashboardId }) => {
     }
     // Only depend on config.eventReportId, not the entire config object
   }, [config?.eventReportId, fetchInitialData]);
-  
+
   // Add a secondary effect to re-fetch if dashboardId changes
   useEffect(() => {
     console.log("EventReportViewer: Dashboard ID changed to:", dashboardId);
-    
+
     // This will trigger a re-fetch of configuration and data when dashboardId changes
     // No need to do anything here as the config will be updated by useDataStore and trigger the above effect
   }, [dashboardId]);
@@ -716,19 +718,21 @@ const EventReportViewer = ({ dashboardId }) => {
               Refresh
             </Button>
 
-            {/* Column Selector Button */}
-            <Button
-              small
-              icon={<FiSettings />}
-              onClick={() => setShowColumnSelector(!showColumnSelector)}
-            >
-              Columns
-            </Button>
+            {/* Column Selector Button - Only show if user has access or in embedded mode */}
+            {(hasConfigAccess || isEmbedded) && (
+              <Button
+                small
+                icon={<FiSettings />}
+                onClick={() => setShowColumnSelector(!showColumnSelector)}
+              >
+                Columns
+              </Button>
+            )}
           </div>
         </div>
 
         {/* Column Selector */}
-        {showColumnSelector && (
+        {showColumnSelector && (hasConfigAccess || isEmbedded) && (
           <div className={styles.columnSelector}>
             <div className={styles.columnSelectorHeader}>
               <h3>Configure Visible Columns</h3>

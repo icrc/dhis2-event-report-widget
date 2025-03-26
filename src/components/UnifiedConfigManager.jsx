@@ -19,7 +19,7 @@ import {
   TableRow,
   TableCell
 } from '@dhis2/ui';
-
+import { useConfig } from '@dhis2/app-runtime';
 // Import components and hooks
 import ConfigManager from './ConfigManager';
 import { useAuthorization } from '../hooks/useAuthorization';
@@ -31,24 +31,24 @@ import { useDataStore } from '../hooks/useDataStore';
  * UnifiedConfigManager Component
  * Provides a unified interface for all configuration needs
  */
-const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId }) => {
+const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId, isEmbedded = false }) => {
   // Use hooks
   const { hasConfigAccess, isSuperUser } = useAuthorization();
   const { dashboards, loading: dashboardsLoading } = useDashboards();
   const { eventReports } = useEventReports();
-  const { 
-    getAllDashboardConfigurations, 
+  const {
+    getAllDashboardConfigurations,
     getDashboardConfiguration,
     deleteDashboardConfiguration,
     saveConfiguration
   } = useDataStore();
-  
+
   // State for active tab and selected dashboard
   const [activeTab, setActiveTab] = useState('report');
   const [selectedDashboardId, setSelectedDashboardId] = useState(initialDashboardId || 'default');
   const [mappings, setMappings] = useState([]);
   const [deleteInProgress, setDeleteInProgress] = useState(false);
-
+  const { baseUrl } = useConfig();
   // Handle tab change
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
@@ -61,25 +61,34 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
     }
   };
 
+  // Return to dashboard or close modal
+  const handleReturnToDashboard = () => {
+    // Get the current dashboard ID from the URL if available    
+   
+      window.location.href = `${baseUrl}/dhis-web-dashboard/#/`;
+  
+  };
+
+
   // Load mappings when tab changes to mapping
   useEffect(() => {
     if (activeTab === 'mapping') {
       const configs = getAllDashboardConfigurations();
       console.log('Dashboard configurations:', configs);
-      
+
       const mappingInfo = [];
-      
+
       // Create an array of mapping objects for display
       Object.entries(configs).forEach(([dashId, config]) => {
         if (dashId && config.eventReportId) {
           // Find dashboard info (or use fallback if not found)
-          const dashboard = dashboards.find(d => d.id === dashId) || 
-                          { displayName: dashId === 'default' ? 'Default' : `Dashboard ${dashId}` };
-          
+          const dashboard = dashboards.find(d => d.id === dashId) ||
+            { displayName: dashId === 'default' ? 'Default' : `Dashboard ${dashId}` };
+
           // Find report info (or use fallback if not found)
-          const report = eventReports.find(r => r.id === config.eventReportId) || 
-                         { name: config.eventReportId };
-          
+          const report = eventReports.find(r => r.id === config.eventReportId) ||
+            { name: config.eventReportId };
+
           mappingInfo.push({
             dashboardId: dashId,
             dashboardName: dashboard.displayName,
@@ -88,7 +97,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
           });
         }
       });
-      
+
       console.log('Mapping info:', mappingInfo);
       setMappings(mappingInfo);
     }
@@ -100,7 +109,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
       try {
         setDeleteInProgress(true);
         await deleteDashboardConfiguration(dashboardId);
-        
+
         // Update mappings
         setMappings(prev => prev.filter(m => m.dashboardId !== dashboardId));
       } catch (error) {
@@ -112,7 +121,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
   };
 
   // Check user authorization
-  if (!hasConfigAccess) {
+  if (!hasConfigAccess && !isEmbedded) {
     return (
       <Modal>
         <ModalContent>
@@ -121,7 +130,11 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
           </NoticeBox>
         </ModalContent>
         <ModalActions>
-          <Button onClick={onClose}>Close</Button>
+         
+            <Button primary onClick={handleReturnToDashboard}>
+              Close and Return to Dashboard
+            </Button>
+         
         </ModalActions>
       </Modal>
     );
@@ -146,7 +159,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
               value="default"
               label="Default Configuration (used when no dashboard is specified)"
             />
-            
+
             {/* Divider between default and actual dashboards */}
             {dashboards.length > 0 && (
               <SingleSelectOption
@@ -155,7 +168,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
                 disabled
               />
             )}
-            
+
             {/* Dashboard options */}
             {dashboards.map(dashboard => (
               <SingleSelectOption
@@ -165,7 +178,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
               />
             ))}
           </SingleSelectField>
-          
+
           {selectedDashboardId === 'default' && (
             <Box margin="8px 0">
               <NoticeBox title="Default Configuration" warning={false}>
@@ -196,22 +209,22 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
         <Box padding="16px">
           {/* Report Configuration */}
           {activeTab === 'report' && (
-            <ConfigManager 
+            <ConfigManager
               dashboardId={selectedDashboardId}
-              embedded={true} 
+              embedded={isEmbedded}
               onClose={onClose}
             />
           )}
-          
+
           {/* Dashboard Mapping */}
           {activeTab === 'mapping' && (
             <Box>
               <h3>Dashboard to Event Report Mappings</h3>
               <p>This table shows all dashboards that have been configured with an event report.</p>
-              
+
               {mappings.length === 0 ? (
                 <NoticeBox title="No Mappings Found">
-                  No dashboards have been mapped to event reports yet. 
+                  No dashboards have been mapped to event reports yet.
                   Use the Report Settings tab to configure dashboards.
                 </NoticeBox>
               ) : (
@@ -238,7 +251,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
                           >
                             Edit
                           </Button>
-                          
+
                           {mapping.dashboardId !== 'default' && (
                             <Button
                               small
@@ -262,7 +275,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
               <Box marginTop="32px">
                 <h3>Global Configuration</h3>
                 <p>The default configuration is used when no dashboard-specific configuration is available.</p>
-                
+
                 <Box marginTop="16px">
                   <Button
                     onClick={() => {
@@ -278,7 +291,7 @@ const UnifiedConfigManager = ({ isOpen, onClose, dashboardId: initialDashboardId
           )}
         </Box>
       </ModalContent>
-      
+
       <ModalActions>
         <Button secondary onClick={onClose}>
           Close
