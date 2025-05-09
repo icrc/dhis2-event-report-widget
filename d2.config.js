@@ -5,7 +5,7 @@
 const config = {
     type: 'app',
     name: 'event-report-widget',
-    title: 'Event list Widget',
+    title: 'Event Report Widget',
     description: 'Dashboard widget to display events list',
     entryPoints: {
         app: './src/App.jsx',
@@ -18,7 +18,7 @@ const config = {
         'MY_ORG_UNIT_DATA'
     ],
     dashboardWidget: {
-        displayName: 'Event report List',
+        displayName: 'Event report Widget',
         description: 'Displays recent event with links to the tracker/ capture module',
         icon: {
             name: 'list'
