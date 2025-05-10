@@ -1,15 +1,25 @@
+// src/App.test.js
 import { CustomDataProvider } from '@dhis2/app-runtime'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import App from './App.js'
+import { createRoot } from 'react-dom/client'
+import App from './App'
 
 it('renders without crashing', () => {
     const div = document.createElement('div')
-    ReactDOM.render(
+    const root = createRoot(div)
+    
+    // Act
+    root.render(
         <CustomDataProvider>
             <App />
-        </CustomDataProvider>,
-        div
+        </CustomDataProvider>
     )
-    ReactDOM.unmountComponentAtNode(div)
+    
+    // Cleanup
+    root.unmount()
+})
+
+// Add a simpler test that doesn't involve rendering
+test('App component can be imported', () => {
+    expect(App).toBeDefined()
 })
