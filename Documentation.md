@@ -192,23 +192,6 @@ The widget follows a modular architecture based on React components and custom h
 - Link directly to case details for follow-up
 - Filter by diagnosis date or treatment type
 
-### District Health Management
-
-**Scenario**: District supervisors need to track immunization coverage across facilities.
-**Solution**: An immunization event report widget on the district dashboard enables managers to:
-- Monitor vaccination counts in real-time
-- Identify facilities with low coverage
-- Drill down to individual records when needed
-- Export data for monthly reporting
-
-### National Program Monitoring
-
-**Scenario**: National HIV program officers need current treatment data.
-**Solution**: Configuring the widget for HIV treatment data allows program staff to:
-- View aggregated treatment statistics
-- Filter by facility or treatment regimen
-- Identify trends in adherence
-- Access individual case information when necessary
 
 ## Implementation Benefits
 
